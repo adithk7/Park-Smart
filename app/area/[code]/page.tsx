@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, use } from 'react';
+import React, { useState, useEffect, useCallback, use } from 'react';
 import Link from 'next/link';
+import { useParkingRealtime } from '@/hooks/use-parking-realtime';
 import { QRCodeImage } from '@/components/qr-code';
 import {
   MapPin,
@@ -101,8 +102,11 @@ export default function ParkingAreaDetailsPage({ params }: { params: Promise<{ c
   const [createdBooking, setCreatedBooking] = useState<any | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
 
+  // Real-time connection indicator
+  const [realtimeFlash, setRealtimeFlash] = useState(false);
+
   // Fetch parking area details by code
-  const fetchDetails = async () => {
+  const fetchDetails = useCallback(async () => {
     try {
       const resArea = await fetch(`/api/parking?q=${code}`);
       const jsonArea = await resArea.json();
@@ -123,13 +127,38 @@ export default function ParkingAreaDetailsPage({ params }: { params: Promise<{ c
     } finally {
       setLoading(false);
     }
-  };
+  }, [code]);
+
+  // Subscribe to real-time parking updates (Supabase or SSE fallback)
+  useParkingRealtime({
+    parkingAreaId: details?.id ?? null,
+    onUpdate: (payload) => {
+      // Instantly apply availability counts from broadcast — no full refetch needed
+      if (payload.availability) {
+        setDetails((prev) =>
+          prev
+            ? {
+                ...prev,
+                freeSlots: payload.availability!.free,
+                occupiedSlots: payload.availability!.occupied,
+                reservedSlots: payload.availability!.reserved,
+              }
+            : prev
+        );
+        // Brief highlight flash for the live indicator
+        setRealtimeFlash(true);
+        setTimeout(() => setRealtimeFlash(false), 1200);
+      }
+    },
+    onRefresh: fetchDetails,
+  });
 
   useEffect(() => {
     fetchDetails();
-    const interval = setInterval(fetchDetails, 15000);
+    // 60-second safety-net poll — real-time events handle instant updates
+    const interval = setInterval(fetchDetails, 60000);
     return () => clearInterval(interval);
-  }, [code]);
+  }, [code, fetchDetails]);
 
   // Handle EV Charging checkbox toggle & period check
   const handleEvToggle = async (checked: boolean) => {
@@ -288,8 +317,17 @@ export default function ParkingAreaDetailsPage({ params }: { params: Promise<{ c
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 text-xs font-mono-tech text-[#9EB08C] mb-1">
-                <span className="w-2 h-2 bg-[#9EB08C] rounded-full animate-pulse inline-block" />
+                <span
+                  className={`w-2 h-2 rounded-full inline-block transition-all duration-300 ${
+                    realtimeFlash
+                      ? 'bg-white scale-125 shadow-[0_0_8px_3px_rgba(255,255,255,0.6)]'
+                      : 'bg-[#9EB08C] animate-pulse'
+                  }`}
+                />
                 LIVE FACILITY DIRECTORY &bull; {details.openingTime} - {details.closingTime} OPERATING HOURS
+                {realtimeFlash && (
+                  <span className="ml-2 text-white font-bold animate-pulse">⚡ UPDATED</span>
+                )}
               </div>
               <h1 className="text-3xl font-black text-white uppercase tracking-tight">{details.name}</h1>
               <p className="text-xs text-zinc-400 mt-1 flex items-center gap-1.5 font-mono-tech">

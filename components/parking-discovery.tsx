@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
+import { useParkingRealtime } from '@/hooks/use-parking-realtime';
 import {
   Search,
   MapPin,
@@ -140,6 +141,25 @@ interface Props {
   initialAreas: PublicParkingArea[];
 }
 
+/** Zero-render bridge: subscribes to realtime for one area and patches parent state */
+function AreaRealtimeBridge({
+  parkingAreaId,
+  onUpdate,
+}: {
+  parkingAreaId: string;
+  onUpdate: (id: string, free: number, occupied: number) => void;
+}) {
+  useParkingRealtime({
+    parkingAreaId,
+    onUpdate: (payload) => {
+      if (payload.availability) {
+        onUpdate(parkingAreaId, payload.availability.free, payload.availability.occupied);
+      }
+    },
+  });
+  return null;
+}
+
 export function ParkingDiscovery({ initialAreas }: Props) {
   const [areas, setAreas] = useState<PublicParkingArea[]>(initialAreas);
   const [query, setQuery] = useState('');
@@ -189,6 +209,20 @@ export function ParkingDiscovery({ initialAreas }: Props) {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, []);
+
+  // Real-time: instantly update a card's availability when a broadcast arrives
+  const handleAreaRealtimeUpdate = useCallback(
+    (parkingAreaId: string, free: number, occupied: number) => {
+      setAreas((prev) =>
+        prev.map((a) =>
+          a.id === parkingAreaId
+            ? { ...a, availableSlots: free, occupiedCount: occupied }
+            : a
+        )
+      );
+    },
+    []
+  );
 
   return (
     <div className="space-y-6">
@@ -295,7 +329,13 @@ export function ParkingDiscovery({ initialAreas }: Props) {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {areas.map((area) => (
-            <ParkingCard key={area.id} area={area} />
+            <React.Fragment key={area.id}>
+              <ParkingCard area={area} />
+              <AreaRealtimeBridge
+                parkingAreaId={area.id}
+                onUpdate={handleAreaRealtimeUpdate}
+              />
+            </React.Fragment>
           ))}
         </div>
       )}

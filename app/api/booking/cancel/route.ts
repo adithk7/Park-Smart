@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { broadcastParkingUpdate } from '@/lib/realtime/publisher';
 
 /**
  * POST /api/booking/cancel
@@ -67,6 +68,14 @@ export async function POST(req: NextRequest) {
       }
     }
   });
+
+  // Broadcast real-time availability release
+  await broadcastParkingUpdate(booking.parkingAreaId, 'BOOKING_CANCELLED', booking.slotId ? {
+    id: booking.slotId,
+    slotNumber: '',
+    vehicleType: booking.vehicleType,
+    status: 'FREE',
+  } : undefined);
 
   return NextResponse.json({
     success: true,

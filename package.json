@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate --schema=prisma/schema.postgres.prisma && next build",
     "start": "next start",
     "lint": "eslint",
     "db:push": "prisma db push",
@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@prisma/client": "5.22.0",
+    "@supabase/supabase-js": "^2.117.3",
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/qrcode": "^1.5.6",

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getServerSession } from '@/lib/auth';
 import { checkAndReleaseExpiredBookings } from '@/lib/booking';
+import { broadcastParkingUpdate } from '@/lib/realtime/publisher';
 
 /**
  * GET & POST /api/staff/bookings
@@ -108,6 +109,13 @@ export async function POST(req: NextRequest) {
         },
       });
     });
+
+    // Broadcast real-time availability update after check-in
+    broadcastParkingUpdate(session.parkingAreaId, 'SLOT_OCCUPIED', {
+      slotId: booking.slotId ?? undefined,
+      status: 'OCCUPIED',
+    }).catch(() => {});
+
     return NextResponse.json({ success: true, message: 'Vehicle check-in recorded. Slot marked as OCCUPIED.' });
   }
 
@@ -159,6 +167,13 @@ export async function POST(req: NextRequest) {
         },
       });
     });
+
+    // Broadcast real-time availability update after departure (slot freed)
+    broadcastParkingUpdate(session.parkingAreaId, 'SLOT_FREED', {
+      slotId: booking.slotId ?? undefined,
+      status: 'FREE',
+    }).catch(() => {});
+
     return NextResponse.json({ success: true, message: 'Vehicle departure recorded. Slot and EV point released.' });
   }
 

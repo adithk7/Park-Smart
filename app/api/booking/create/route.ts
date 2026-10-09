@@ -8,6 +8,7 @@ import {
   findCompatibleSlot,
 } from '@/lib/booking';
 import { generateBookingQrToken, buildQrPayload } from '@/lib/qr';
+import { broadcastParkingUpdate } from '@/lib/realtime/publisher';
 
 /**
  * POST /api/booking/create
@@ -132,86 +133,128 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 9. Execute DB Transaction
-  const { booking, qrToken, qrPayload } = await db.$transaction(async (tx) => {
-    // Generate unique short code
-    const count = await tx.booking.count();
-    const bookingCode = `BK-${String(count + 1001).padStart(5, '0')}`;
-    const bookingId = crypto.randomUUID();
+  // 9. Execute DB Transaction with atomic concurrency protection
+  try {
+    const { booking, qrToken, qrPayload, chosenSlot } = await db.$transaction(async (tx) => {
+      // Concurrency check: Ensure slot is still FREE inside transaction
+      let targetSlot = await tx.parkingSlot.findFirst({
+        where: { id: slot.id, parkingAreaId, status: 'FREE' },
+      });
 
-    const { token, hash } = generateBookingQrToken(bookingId, bookingCode);
-    const payload = buildQrPayload(bookingCode, token);
+      // If concurrent request snatched this slot, attempt to find another FREE compatible slot
+      if (!targetSlot) {
+        const candidateTypes = [vehicleType, '4W', '2W', 'EV', 'SUV', 'ACCESSIBLE'];
+        targetSlot = await tx.parkingSlot.findFirst({
+          where: {
+            parkingAreaId,
+            status: 'FREE',
+            vehicleType: { in: candidateTypes },
+          },
+          orderBy: { slotNumber: 'asc' },
+        });
+      }
 
-    const newBooking = await tx.booking.create({
-      data: {
-        id: bookingId,
-        bookingCode,
-        parkingAreaId,
-        slotId: slot.id,
-        vehicleType,
-        vehiclePlate: vehiclePlate.trim().toUpperCase(),
-        estimatedArrival: arrivalDate,
-        estimatedDuration: durationHours,
-        checkInDeadline,
-        carWashRequested: Boolean(carWashRequested),
-        carWashFee,
-        evChargingRequested: Boolean(evChargingRequested),
-        evChargingFee,
-        evChargingPointId: allocatedEvPointId || null,
-        parkingRatePerHour: hourlyParkingRate,
-        evRatePerHour: evRate,
-        parkingFee,
-        totalAmount,
-        paymentMethod,
-        paymentStatus,
-        status: initialStatus,
-        driverPhone: driverPhone || null,
-        qrTokenHash: hash,
-      },
-    });
+      if (!targetSlot) {
+        throw new Error('CAPACITY_EXCEEDED');
+      }
 
-    // Mark slot as RESERVED
-    await tx.parkingSlot.update({
-      where: { id: slot.id },
-      data: { status: 'RESERVED' },
-    });
+      // Generate unique short code
+      const count = await tx.booking.count();
+      const bookingCode = `BK-${String(count + 1001).padStart(5, '0')}`;
+      const bookingId = crypto.randomUUID();
 
-    // Create EV Reservation if EV requested
-    if (evChargingRequested && allocatedEvPointId) {
-      const endTime = new Date(arrivalDate.getTime() + durationHours * 3600 * 1000);
-      await tx.evReservation.create({
+      const { token, hash } = generateBookingQrToken(bookingId, bookingCode);
+      const payload = buildQrPayload(bookingCode, token);
+
+      const newBooking = await tx.booking.create({
         data: {
+          id: bookingId,
+          bookingCode,
           parkingAreaId,
-          evChargingPointId: allocatedEvPointId,
-          bookingId: newBooking.id,
-          startTime: arrivalDate,
-          endTime,
-          status: 'RESERVED',
+          slotId: targetSlot.id,
+          vehicleType,
+          vehiclePlate: vehiclePlate.trim().toUpperCase(),
+          estimatedArrival: arrivalDate,
+          estimatedDuration: durationHours,
+          checkInDeadline,
+          carWashRequested: Boolean(carWashRequested),
+          carWashFee,
+          evChargingRequested: Boolean(evChargingRequested),
+          evChargingFee,
+          evChargingPointId: allocatedEvPointId || null,
+          parkingRatePerHour: hourlyParkingRate,
+          evRatePerHour: evRate,
+          parkingFee,
+          totalAmount,
+          paymentMethod,
+          paymentStatus,
+          status: initialStatus,
+          driverPhone: driverPhone || null,
+          qrTokenHash: hash,
         },
       });
+
+      // Mark slot as RESERVED
+      await tx.parkingSlot.update({
+        where: { id: targetSlot.id },
+        data: { status: 'RESERVED' },
+      });
+
+      // Create EV Reservation if EV requested
+      if (evChargingRequested && allocatedEvPointId) {
+        const endTime = new Date(arrivalDate.getTime() + durationHours * 3600 * 1000);
+        await tx.evReservation.create({
+          data: {
+            parkingAreaId,
+            evChargingPointId: allocatedEvPointId,
+            bookingId: newBooking.id,
+            startTime: arrivalDate,
+            endTime,
+            status: 'RESERVED',
+          },
+        });
+      }
+
+      return { booking: newBooking, qrToken: token, qrPayload: payload, chosenSlot: targetSlot };
+    });
+
+    // Publish real-time event to all connected clients
+    await broadcastParkingUpdate(parkingAreaId, 'BOOKING_CREATED', {
+      id: chosenSlot.id,
+      slotNumber: chosenSlot.slotNumber,
+      vehicleType: chosenSlot.vehicleType,
+      status: 'RESERVED',
+    });
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        id: booking.id,
+        bookingCode: booking.bookingCode,
+        parkingAreaId: booking.parkingAreaId,
+        slotNumber: chosenSlot.slotNumber,
+        vehiclePlate: booking.vehiclePlate,
+        estimatedArrival: booking.estimatedArrival,
+        checkInDeadline: booking.checkInDeadline,
+        totalAmount: booking.totalAmount,
+        paymentMethod: booking.paymentMethod,
+        paymentStatus: booking.paymentStatus,
+        status: booking.status,
+        windowOpen: isWindowOpen,
+        minutesUntilWindow,
+        qrToken,
+        qrPayload,
+      },
+    });
+  } catch (err: any) {
+    if (err?.message === 'CAPACITY_EXCEEDED') {
+      return NextResponse.json(
+        { success: false, message: 'All available parking slots have just been reserved. Capacity limit reached.' },
+        { status: 409 }
+      );
     }
-
-    return { booking: newBooking, qrToken: token, qrPayload: payload };
-  });
-
-  return NextResponse.json({
-    success: true,
-    data: {
-      id: booking.id,
-      bookingCode: booking.bookingCode,
-      parkingAreaId: booking.parkingAreaId,
-      slotNumber: slot.slotNumber,
-      vehiclePlate: booking.vehiclePlate,
-      estimatedArrival: booking.estimatedArrival,
-      checkInDeadline: booking.checkInDeadline,
-      totalAmount: booking.totalAmount,
-      paymentMethod: booking.paymentMethod,
-      paymentStatus: booking.paymentStatus,
-      status: booking.status,
-      windowOpen: isWindowOpen,
-      minutesUntilWindow,
-      qrToken,
-      qrPayload,
-    },
-  });
+    console.error('Error creating booking:', err);
+    return NextResponse.json({ success: false, message: 'Failed to complete booking' }, { status: 500 });
+  }
 }
+

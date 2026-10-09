@@ -1,0 +1,448 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/postgres-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model ParkingArea {
+  id                  String             @id @default(cuid())
+  name                String
+  code                String             @unique
+  city                String?
+  address             String?
+  venueType           String             @default("BOTH")
+  tier                Int                @default(1)
+  levels              Int                @default(1)
+  totalCapacity       Int                @default(100)
+  twoWheelerCapacity  Int                @default(60)
+  fourWheelerCapacity Int                @default(40)
+  otherCapacity       Int                @default(0)
+  hourlyRate2W        Float              @default(15.0)
+  hourlyRate4W        Float              @default(30.0)
+  hourlyRate          Float              @default(20.0)
+  currency            String             @default("INR")
+  staffPasswordHash   String?
+  contactPhone        String?
+  carWashAvailable    Boolean            @default(false)
+  carWashRate         Float              @default(150.0)
+  evChargingAvailable Boolean            @default(false)
+  evHourlyRate        Float              @default(50.0)
+  evRatePerKw         Float              @default(50.0)
+  evPointsCount       Int                @default(0)
+  openingTime         String             @default("00:00")
+  closingTime         String             @default("23:59")
+  isPublished         Boolean            @default(true)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  analyticsLogs       AnalyticsLog[]
+  auditLogs           AuditLog[]
+  barrierGates        BarrierGate[]
+  bookings            Booking[]
+  chargingPoints      EvChargingPoint[]
+  evReservations      EvReservation[]
+  gateScanLogs        GateScanLog[]
+  levels_rel          Level[]
+  slots               ParkingSlot[]
+  paymentRecords      PaymentRecord[]
+  recurringProfiles   RecurringProfile[]
+  sessionEvents       SessionEvent[]
+  staffMembers        Staff[]
+  tariffs             Tariff[]
+  users               User[]
+  sessions            VisitSession[]
+  zones               Zone[]
+}
+
+model User {
+  id            String      @id @default(cuid())
+  parkingAreaId String
+  email         String      @unique
+  passwordHash  String
+  name          String
+  role          String      @default("ADMIN")
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  parkingArea   ParkingArea @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+
+  @@index([parkingAreaId])
+}
+
+model Staff {
+  id            String      @id @default(cuid())
+  parkingAreaId String
+  staffCode     String
+  name          String
+  phone         String?
+  assignedZone  String?
+  active        Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  parkingArea   ParkingArea @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+
+  @@unique([parkingAreaId, staffCode])
+  @@index([parkingAreaId])
+}
+
+model AuditLog {
+  id            String      @id @default(cuid())
+  parkingAreaId String
+  actorId       String?
+  actorRole     String      @default("SYSTEM")
+  action        String
+  meta          String?
+  createdAt     DateTime    @default(now())
+  parkingArea   ParkingArea @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+
+  @@index([parkingAreaId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model LoginAttempt {
+  id          String    @id @default(cuid())
+  identifier  String    @unique
+  failures    Int       @default(0)
+  lockedUntil DateTime?
+  updatedAt   DateTime  @updatedAt
+}
+
+model Level {
+  id            String      @id @default(cuid())
+  parkingAreaId String
+  name          String
+  displayOrder  Int         @default(0)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  parkingArea   ParkingArea @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+  zones         Zone[]
+
+  @@unique([parkingAreaId, name])
+  @@index([parkingAreaId])
+}
+
+model Zone {
+  id            String        @id @default(cuid())
+  parkingAreaId String
+  levelId       String
+  name          String
+  zoneType      String        @default("VISITOR_POOL")
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  slots         ParkingSlot[]
+  level         Level         @relation(fields: [levelId], references: [id], onDelete: Cascade)
+  parkingArea   ParkingArea   @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+
+  @@unique([levelId, name])
+  @@index([parkingAreaId])
+  @@index([levelId])
+}
+
+model ParkingSlot {
+  id                String             @id @default(cuid())
+  parkingAreaId     String
+  zoneId            String
+  slotNumber        String
+  vehicleType       String             @default("4W")
+  status            String             @default("FREE")
+  ownerId           String?
+  ownerLabel        String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  bookings          Booking[]
+  parkingArea       ParkingArea        @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+  zone              Zone               @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  recurringProfiles RecurringProfile[]
+  sessions          VisitSession[]
+
+  @@unique([parkingAreaId, slotNumber])
+  @@index([parkingAreaId])
+  @@index([zoneId])
+  @@index([status])
+}
+
+model Tariff {
+  id              String           @id @default(cuid())
+  parkingAreaId   String
+  name            String           @default("Default Tariff")
+  isActive        Boolean          @default(true)
+  freeMinutes     Int              @default(15)
+  gracePeriodMin  Int              @default(15)
+  dailyCap        Float?
+  reservationFee  Float            @default(0.0)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  parkingArea     ParkingArea      @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+  slabs           TariffSlab[]
+  validationRules ValidationRule[]
+
+  @@index([parkingAreaId])
+}
+
+model TariffSlab {
+  id          String @id @default(cuid())
+  tariffId    String
+  vehicleType String @default("4W")
+  upToHours   Float
+  ratePerHour Float
+  flatFee     Float  @default(0.0)
+  sortOrder   Int    @default(0)
+  tariff      Tariff @relation(fields: [tariffId], references: [id], onDelete: Cascade)
+
+  @@index([tariffId])
+}
+
+model ValidationRule {
+  id       String  @id @default(cuid())
+  tariffId String
+  ruleType String
+  label    String
+  config   String
+  isActive Boolean @default(true)
+  tariff   Tariff  @relation(fields: [tariffId], references: [id], onDelete: Cascade)
+
+  @@index([tariffId])
+}
+
+model VisitSession {
+  id               String            @id @default(cuid())
+  parkingAreaId    String
+  slotId           String?
+  ticketCode       String            @unique @default(cuid())
+  sessionCode      String            @unique @default(cuid())
+  plateRaw         String?
+  plateToken       String
+  fastagToken      String?
+  vehicleType      String            @default("4W")
+  isEV             Boolean           @default(false)
+  preference       String            @default("SELF")
+  visitModel       String            @default("TRANSIENT")
+  status           String            @default("OPEN")
+  entryMethod      String            @default("MANUAL")
+  entryStaffId     String?
+  entryAt          DateTime          @default(now())
+  parkedAt         DateTime?
+  paymentInitAt    DateTime?
+  paidAt           DateTime?
+  exitAt           DateTime?
+  entryGateId      String?
+  exitGateId       String?
+  entryImagePath   String?
+  exitImagePath    String?
+  feeAmount        Float             @default(0.0)
+  paymentStatus    String            @default("PENDING")
+  paymentMethod    String?
+  driverPhone      String?
+  profileId        String?
+  visitorPassId    String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  payments         PaymentRecord[]
+  events           SessionEvent[]
+  parkingArea      ParkingArea       @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+  recurringProfile RecurringProfile? @relation(fields: [profileId], references: [id])
+  slot             ParkingSlot?      @relation(fields: [slotId], references: [id])
+
+  @@index([parkingAreaId])
+  @@index([plateToken])
+  @@index([status])
+  @@index([ticketCode])
+  @@index([entryAt])
+}
+
+model AnprCapture {
+  id            String   @id @default(cuid())
+  parkingAreaId String
+  sessionId     String?
+  imagePath     String
+  plateRaw      String?
+  confidence    Float    @default(0.0)
+  purgeAfter    DateTime
+  purged        Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@index([parkingAreaId])
+  @@index([purgeAfter])
+}
+
+model SessionEvent {
+  id            String       @id @default(cuid())
+  parkingAreaId String
+  sessionId     String
+  eventType     String
+  payload       String?
+  createdAt     DateTime     @default(now())
+  parkingArea   ParkingArea  @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+  session       VisitSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([parkingAreaId])
+  @@index([sessionId])
+}
+
+model RecurringProfile {
+  id            String         @id @default(cuid())
+  parkingAreaId String
+  slotId        String?
+  name          String
+  plateRaw      String
+  plateToken    String
+  phone         String
+  type          String         @default("RESIDENT")
+  validUntil    DateTime?
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  parkingArea   ParkingArea    @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+  slot          ParkingSlot?   @relation(fields: [slotId], references: [id])
+  sessions      VisitSession[]
+
+  @@index([parkingAreaId])
+  @@index([plateToken])
+}
+
+model AnalyticsLog {
+  id               String      @id @default(cuid())
+  parkingAreaId    String
+  plateToken       String
+  dwellTimeMinutes Int?
+  amountPaid       Float       @default(0.0)
+  tierAtVisit      Int         @default(1)
+  visitModel       String      @default("TRANSIENT")
+  timestamp        DateTime    @default(now())
+  parkingArea      ParkingArea @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+
+  @@index([parkingAreaId])
+  @@index([plateToken])
+  @@index([timestamp])
+}
+
+model BarrierGate {
+  id            String      @id @default(cuid())
+  parkingAreaId String
+  name          String
+  type          String
+  status        String      @default("CLOSED")
+  anprCameraUrl String?
+  createdAt     DateTime    @default(now())
+  parkingArea   ParkingArea @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+
+  @@index([parkingAreaId])
+}
+
+model PaymentRecord {
+  id             String       @id @default(cuid())
+  parkingAreaId  String
+  sessionId      String
+  amount         Float
+  method         String
+  status         String       @default("SUCCESS")
+  transactionRef String?
+  createdAt      DateTime     @default(now())
+  parkingArea    ParkingArea  @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+  session        VisitSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([parkingAreaId])
+  @@index([sessionId])
+}
+
+model Booking {
+  id                  String           @id @default(cuid())
+  bookingCode         String           @unique @default(cuid())
+  parkingAreaId       String
+  slotId              String?
+  vehicleType         String           @default("4W")
+  vehiclePlate        String
+  estimatedArrival    DateTime
+  estimatedDuration   Int              @default(1)
+  checkInDeadline     DateTime
+  carWashRequested    Boolean          @default(false)
+  carWashFee          Float            @default(0.0)
+  evChargingRequested Boolean          @default(false)
+  evChargingFee       Float            @default(0.0)
+  evChargingPointId   String?
+  evRatePerHour       Float            @default(50.0)
+  parkingRatePerHour  Float            @default(20.0)
+  parkingFee          Float            @default(0.0)
+  totalAmount         Float            @default(0.0)
+  paymentMethod       String           @default("PAY_AT_PARKING")
+  paymentStatus       String           @default("PENDING")
+  status              String           @default("PENDING")
+  driverPhone         String?
+  qrTokenHash         String?          @unique
+  entryAt             DateTime?
+  exitAt              DateTime?
+  scanCount           Int              @default(0)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  evChargingPoint     EvChargingPoint? @relation(fields: [evChargingPointId], references: [id])
+  parkingArea         ParkingArea      @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+  slot                ParkingSlot?     @relation(fields: [slotId], references: [id])
+  evReservation       EvReservation?
+  gateScanLogs        GateScanLog[]
+
+  @@index([parkingAreaId])
+  @@index([slotId])
+  @@index([status])
+  @@index([bookingCode])
+  @@index([estimatedArrival])
+  @@index([qrTokenHash])
+}
+
+model GateScanLog {
+  id            String      @id @default(cuid())
+  bookingId     String?
+  parkingAreaId String
+  gateType      String
+  staffId       String?
+  staffName     String?
+  scanMethod    String      @default("QR_CAMERA")
+  result        String
+  reason        String?
+  createdAt     DateTime    @default(now())
+  booking       Booking?    @relation(fields: [bookingId], references: [id])
+  parkingArea   ParkingArea @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@index([parkingAreaId])
+  @@index([gateType])
+  @@index([result])
+  @@index([createdAt])
+}
+
+model EvChargingPoint {
+  id            String          @id @default(cuid())
+  parkingAreaId String
+  code          String
+  powerKw       Float           @default(22.0)
+  status        String          @default("AVAILABLE")
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  bookings      Booking[]
+  parkingArea   ParkingArea     @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+  reservations  EvReservation[]
+
+  @@unique([parkingAreaId, code])
+  @@index([parkingAreaId])
+}
+
+model EvReservation {
+  id                String          @id @default(cuid())
+  parkingAreaId     String
+  evChargingPointId String
+  bookingId         String?         @unique
+  startTime         DateTime
+  endTime           DateTime
+  status            String          @default("RESERVED")
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  booking           Booking?        @relation(fields: [bookingId], references: [id])
+  evChargingPoint   EvChargingPoint @relation(fields: [evChargingPointId], references: [id], onDelete: Cascade)
+  parkingArea       ParkingArea     @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+
+  @@index([parkingAreaId])
+  @@index([evChargingPointId])
+  @@index([startTime, endTime])
+}

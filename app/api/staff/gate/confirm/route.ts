@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getServerSession } from '@/lib/auth';
+import { broadcastParkingUpdate } from '@/lib/realtime/publisher';
 
 /**
  * POST /api/staff/gate/confirm
@@ -189,6 +190,18 @@ export async function POST(req: NextRequest) {
 
       throw new Error('INVALID_GATE_TYPE');
     });
+
+    // Broadcast real-time availability update to all viewing clients
+    await broadcastParkingUpdate(
+      session.parkingAreaId,
+      gateType === 'ENTRY' ? 'GATE_ENTRY' : 'GATE_EXIT',
+      result.booking.slotId ? {
+        id: result.booking.slotId,
+        slotNumber: '',
+        vehicleType: result.booking.vehicleType,
+        status: gateType === 'ENTRY' ? 'OCCUPIED' : 'FREE',
+      } : undefined
+    );
 
     return NextResponse.json({ success: true, ...result });
   } catch (err: any) {

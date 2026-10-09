@@ -224,7 +224,7 @@ export default async function StaffDashboardPage() {
         </section>
 
         {/* Staff Operations Console: Slots & EV Controls */}
-        <StaffControls />
+        <StaffControls parkingAreaId={session.parkingAreaId} />
 
         {/* Security Notice for Staff */}
         <div className="border border-[#292E38] bg-[#171D27] p-4 flex items-start gap-3 text-xs text-[#A1A1AA] font-mono-tech">

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getServerSession } from '@/lib/auth';
+import { broadcastParkingUpdate } from '@/lib/realtime/publisher';
 
 /**
  * GET & PATCH /api/staff/slots
@@ -69,5 +70,14 @@ export async function PATCH(req: NextRequest) {
     data: { status: body.status },
   });
 
+  // Broadcast real-time slot update to all viewing clients
+  await broadcastParkingUpdate(session.parkingAreaId, 'SLOT_UPDATED', {
+    id: updated.id,
+    slotNumber: updated.slotNumber,
+    vehicleType: updated.vehicleType,
+    status: updated.status as any,
+  });
+
   return NextResponse.json({ success: true, data: updated });
 }
+

@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useParkingRealtime } from '@/hooks/use-parking-realtime';
 import {
   Car,
   Bike,
@@ -19,7 +20,7 @@ import {
   LogIn
 } from 'lucide-react';
 
-export function StaffControls() {
+export function StaffControls({ parkingAreaId }: { parkingAreaId?: string }) {
   const [activeTab, setActiveTab] = useState<'SLOTS' | 'BOOKINGS' | 'EV'>('SLOTS');
 
   // Slots state
@@ -45,7 +46,7 @@ export function StaffControls() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Fetch Slots
-  const fetchSlots = async () => {
+  const fetchSlots = useCallback(async () => {
     try {
       const res = await fetch('/api/staff/slots');
       const json = await res.json();
@@ -55,7 +56,7 @@ export function StaffControls() {
     } finally {
       setLoadingSlots(false);
     }
-  };
+  }, []);
 
   // Fetch Bookings
   const fetchBookings = async (q = '') => {
@@ -90,7 +91,18 @@ export function StaffControls() {
     fetchSlots();
     fetchBookings();
     fetchEvData();
-  }, []);
+  }, [fetchSlots]);
+
+  // Subscribe to real-time events for this parking area
+  useParkingRealtime({
+    parkingAreaId: parkingAreaId ?? null,
+    onUpdate: () => {
+      // Re-fetch slot and booking data on any parking update
+      fetchSlots();
+      fetchBookings(searchQuery);
+    },
+  });
+
 
   // Update Slot Status
   const handleSlotStatusChange = async (slotId: string, status: string) => {

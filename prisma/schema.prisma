@@ -1,0 +1,378 @@
+// Prisma Schema for ParkSmart
+// SQLite for dev, fully schema-compatible with PostgreSQL in production.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Multi-tenant root entity
+model ParkingArea {
+  id                String   @id @default(cuid())
+  name              String
+  code              String   @unique // Tenant identifier (e.g. "DEMO-MALL-4821")
+  city              String?
+  address           String?
+  venueType         String   @default("BOTH") // "TRANSIENT", "RECURRING", "BOTH"
+  tier              Int      @default(1) // Site tier 0-3 (0=No sensors, 1=Gates only, 2=CCTV/ANPR, 3=Slot sensors)
+  levels            Int      @default(1)
+  totalCapacity     Int      @default(100)
+  occupiedCount     Int      @default(0)
+  hourlyRate        Float    @default(20.0)
+  currency          String   @default("INR")
+  staffPasswordHash String?  // Shared password hash for gate attendants / staff
+  contactPhone      String?
+  isPublished       Boolean  @default(false) // Admin must explicitly publish to appear in public search
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  users             User[]
+  staffMembers      Staff[]
+  auditLogs         AuditLog[]
+  levels_rel        Level[]
+  zones             Zone[]
+  slots             ParkingSlot[]
+  sessions          VisitSession[]
+  sessionEvents     SessionEvent[]
+  analyticsLogs     AnalyticsLog[]
+  recurringProfiles RecurringProfile[]
+  barrierGates      BarrierGate[]
+  paymentRecords    PaymentRecord[]
+  tariffs           Tariff[]
+}
+
+// System Users (ADMIN or STAFF scoped to a ParkingArea)
+model User {
+  id            String      @id @default(cuid())
+  parkingAreaId String
+  email         String      @unique
+  passwordHash  String
+  name          String
+  role          String      @default("ADMIN") // "ADMIN", "STAFF"
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  parkingArea   ParkingArea @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+
+  @@index([parkingAreaId])
+}
+
+// Individual Staff / Gate Attendants scoped to a ParkingArea
+model Staff {
+  id            String      @id @default(cuid())
+  parkingAreaId String
+  staffCode     String      // e.g. "ST-001", unique within this parkingArea
+  name          String
+  phone         String?
+  assignedZone  String?     // e.g. "Zone A - Ground Floor", "Main Entry Gate"
+  active        Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  parkingArea   ParkingArea @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+
+  @@unique([parkingAreaId, staffCode])
+  @@index([parkingAreaId])
+}
+
+// Audit trail for security, authentication, and staff management
+model AuditLog {
+  id            String      @id @default(cuid())
+  parkingAreaId String
+  actorId       String?
+  actorRole     String      @default("SYSTEM") // "ADMIN", "STAFF", "SYSTEM"
+  action        String      // "LOGIN_SUCCESS", "LOGIN_FAILED", "STAFF_CREATED", "STAFF_STATUS_CHANGED", "STAFF_DELETED", "STAFF_PASSWORD_ROTATED"
+  meta          String?     // JSON metadata string
+  createdAt     DateTime    @default(now())
+
+  parkingArea   ParkingArea @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+
+  @@index([parkingAreaId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// Rate limiting & lockout tracker for login attempts (5 failures -> 10 minute lockout)
+model LoginAttempt {
+  id          String    @id @default(cuid())
+  identifier  String    @unique // e.g. "admin:email@test.com" or "staff:CODE:ST-001"
+  failures    Int       @default(0)
+  lockedUntil DateTime?
+  updatedAt   DateTime  @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────────
+// LAYOUT MODELS: Level -> Zone -> ParkingSlot
+// ─────────────────────────────────────────────────────────────────
+
+// Physical level / deck (e.g. Level 1, Basement 1)
+model Level {
+  id            String      @id @default(cuid())
+  parkingAreaId String
+  name          String      // e.g. "Level 1", "Basement 1"
+  displayOrder  Int         @default(0)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  parkingArea   ParkingArea @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+  zones         Zone[]
+
+  @@unique([parkingAreaId, name])
+  @@index([parkingAreaId])
+}
+
+// Zone within a level (e.g. Zone A, VIP Block)
+model Zone {
+  id            String      @id @default(cuid())
+  parkingAreaId String
+  levelId       String
+  name          String      // e.g. "Zone A", "VIP Block"
+  zoneType      String      @default("VISITOR_POOL") // "VISITOR_POOL", "RESIDENT_ASSIGNED", "OVERFLOW"
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  parkingArea   ParkingArea  @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+  level         Level        @relation(fields: [levelId], references: [id], onDelete: Cascade)
+  slots         ParkingSlot[]
+
+  @@unique([levelId, name])
+  @@index([parkingAreaId])
+  @@index([levelId])
+}
+
+// Individual parking bay / slot
+model ParkingSlot {
+  id            String      @id @default(cuid())
+  parkingAreaId String
+  zoneId        String
+  slotNumber    String      // e.g. "L1-A-01" (auto-generated)
+  vehicleType   String      @default("4W")   // "2W", "4W", "EV", "ACCESSIBLE", "SUV"
+  status        String      @default("FREE") // "FREE", "OCCUPIED", "RESERVED", "BLOCKED"
+  ownerId       String?     // unit/employee ID for long-term/resident slots; null = transient pool
+  ownerLabel    String?     // human-readable owner label (flat no., employee name)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  parkingArea   ParkingArea  @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+  zone          Zone         @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  sessions      VisitSession[]
+  recurringProfiles RecurringProfile[]
+
+  @@unique([parkingAreaId, slotNumber])
+  @@index([parkingAreaId])
+  @@index([zoneId])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TARIFF MODELS
+// ─────────────────────────────────────────────────────────────────
+
+// Tariff: top-level rule set for a parking area
+model Tariff {
+  id                String        @id @default(cuid())
+  parkingAreaId     String
+  name              String        @default("Default Tariff")
+  isActive          Boolean       @default(true)
+  freeMinutes       Int           @default(15)    // free grace period at entry
+  gracePeriodMin    Int           @default(15)    // grace window after payment before exit charge resumes
+  dailyCap          Float?                        // max charge per 24h
+  reservationFee    Float         @default(0.0)   // pre-booking fee
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  parkingArea       ParkingArea   @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+  slabs             TariffSlab[]
+  validationRules   ValidationRule[]
+
+  @@index([parkingAreaId])
+}
+
+// Time-based rate slabs (first X hours -> Rs Y per vehicle type)
+model TariffSlab {
+  id            String    @id @default(cuid())
+  tariffId      String
+  vehicleType   String    @default("4W")  // "2W", "4W", "EV", "ACCESSIBLE", "SUV"
+  upToHours     Float                     // upper bound for this slab (exclusive); null = unlimited
+  ratePerHour   Float                     // Rs per hour for this slab
+  flatFee       Float     @default(0.0)   // fixed fee for the entire slab period (alternative to per-hour)
+  sortOrder     Int       @default(0)     // slabs evaluated lowest-to-highest
+
+  tariff        Tariff    @relation(fields: [tariffId], references: [id], onDelete: Cascade)
+
+  @@index([tariffId])
+}
+
+// Special validation rules (minimum spend, linked flight, etc.)
+model ValidationRule {
+  id          String  @id @default(cuid())
+  tariffId    String
+  ruleType    String  // "MINIMUM_SPEND" | "LINKED_FLIGHT" | "CUSTOM"
+  label       String  // human-readable label
+  config      String  // JSON config string (e.g. {"minAmount": 200} or {"flightWindow": 120})
+  isActive    Boolean @default(true)
+
+  tariff      Tariff  @relation(fields: [tariffId], references: [id], onDelete: Cascade)
+
+  @@index([tariffId])
+}
+
+// Single Session per visit from entry to exit
+model VisitSession {
+  id                 String     @id @default(cuid())
+  parkingAreaId      String
+  slotId             String?
+  // Ticket code — short human-readable token used in QR: /t/{ticketCode}
+  ticketCode         String     @unique @default(cuid())
+  sessionCode        String     @unique @default(cuid()) // legacy compat
+  plateRaw           String?    // Kept ONLY on session for exit & dispute
+  plateToken         String     // HMAC-SHA256(normalised plate, SECRET)
+  fastagToken        String?    // HMAC-SHA256(fastagId) if FASTag entry
+  vehicleType        String     @default("4W")  // "2W", "4W"
+  isEV               Boolean    @default(false)
+  preference         String     @default("SELF") // "SELF", "VALET", "ACCESSIBLE"
+  visitModel         String     @default("TRANSIENT") // "TRANSIENT", "RECURRING"
+  // State machine: OPEN → PARKED → PAYING → PAID → EXITED  (+ DISPUTED)
+  status             String     @default("OPEN")
+  entryMethod        String     @default("MANUAL") // "ANPR", "MANUAL", "QR", "DRIVER_SELF"
+  entryStaffId       String?    // Staff.id who opened the session (null = driver self-entry)
+  entryAt            DateTime   @default(now())
+  parkedAt           DateTime?
+  paymentInitAt      DateTime?
+  paidAt             DateTime?
+  exitAt             DateTime?
+  entryGateId        String?
+  exitGateId         String?
+  entryImagePath     String?    // server path — cleared after 24h by cleanup job
+  exitImagePath      String?
+  feeAmount          Float      @default(0.0)
+  paymentStatus      String     @default("PENDING") // "PENDING", "PAID", "FAILED", "WAIVED"
+  paymentMethod      String?    // "UPI", "FASTAG", "CASH", "CARD"
+  driverPhone        String?    // encrypted at-rest; masked for display
+  profileId          String?    // RecurringProfile.id for resident/employee
+  visitorPassId      String?    // future: pre-booked visitor pass
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  parkingArea        ParkingArea       @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+  slot               ParkingSlot?      @relation(fields: [slotId], references: [id], onDelete: SetNull)
+  recurringProfile   RecurringProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  events             SessionEvent[]
+  payments           PaymentRecord[]
+
+  @@index([parkingAreaId])
+  @@index([plateToken])
+  @@index([status])
+  @@index([ticketCode])
+  @@index([entryAt])
+}
+
+// Stores ANPR captured images for 24h then purged by cleanup job
+model AnprCapture {
+  id            String   @id @default(cuid())
+  parkingAreaId String
+  sessionId     String?
+  imagePath     String   // absolute path on disk
+  plateRaw      String?
+  confidence    Float    @default(0.0)
+  purgeAfter    DateTime // entryAt + 24h
+  purged        Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@index([parkingAreaId])
+  @@index([purgeAfter])
+}
+
+// Audit trail and timeline of events for every visit session
+model SessionEvent {
+  id            String       @id @default(cuid())
+  parkingAreaId String
+  sessionId     String
+  eventType     String       // "ENTRY_DETECTED", "GATE_OPENED", "SLOT_OCCUPIED", "PAYMENT_INITIATED", "PAYMENT_SUCCESS", "EXIT_DETECTED", "DISPUTE_RAISED", "MASKED_CALL_INITIATED"
+  payload       String?      // JSON string with detailed metadata
+  createdAt     DateTime     @default(now())
+
+  parkingArea   ParkingArea  @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+  session       VisitSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([parkingAreaId])
+  @@index([sessionId])
+}
+
+// Standing profiles for recurring visitors (residents, employees)
+model RecurringProfile {
+  id            String       @id @default(cuid())
+  parkingAreaId String
+  slotId        String?
+  name          String
+  plateRaw      String
+  plateToken    String       // HMAC-SHA256
+  phone         String
+  type          String       @default("RESIDENT") // "RESIDENT", "EMPLOYEE", "VIP"
+  validUntil    DateTime?
+  isActive      Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  parkingArea   ParkingArea  @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+  slot          ParkingSlot? @relation(fields: [slotId], references: [id], onDelete: SetNull)
+  sessions      VisitSession[]
+
+  @@index([parkingAreaId])
+  @@index([plateToken])
+}
+
+// Analytics records - strictly NO raw plates permitted! Only HMAC plateToken!
+model AnalyticsLog {
+  id               String      @id @default(cuid())
+  parkingAreaId    String
+  plateToken       String      // HMAC-SHA256 hashed plate ONLY
+  dwellTimeMinutes Int?
+  amountPaid       Float       @default(0.0)
+  tierAtVisit      Int         @default(1)
+  visitModel       String      @default("TRANSIENT")
+  timestamp        DateTime    @default(now())
+
+  parkingArea      ParkingArea @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+
+  @@index([parkingAreaId])
+  @@index([plateToken])
+  @@index([timestamp])
+}
+
+// Physical Barrier Gates
+model BarrierGate {
+  id            String      @id @default(cuid())
+  parkingAreaId String
+  name          String      // e.g., "Main Gate Entry", "North Gate Exit"
+  type          String      // "ENTRY", "EXIT", "BIDIRECTIONAL"
+  status        String      @default("CLOSED") // "OPEN", "CLOSED", "LOCKED", "MAINTENANCE"
+  anprCameraUrl String?
+  createdAt     DateTime    @default(now())
+
+  parkingArea   ParkingArea @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+
+  @@index([parkingAreaId])
+}
+
+// Payments Log
+model PaymentRecord {
+  id             String       @id @default(cuid())
+  parkingAreaId  String
+  sessionId      String
+  amount         Float
+  method         String       // "UPI", "FASTAG", "CASH"
+  status         String       @default("SUCCESS") // "SUCCESS", "PENDING", "FAILED"
+  transactionRef String?
+  createdAt      DateTime     @default(now())
+
+  parkingArea    ParkingArea  @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+  session        VisitSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([parkingAreaId])
+  @@index([sessionId])
+}

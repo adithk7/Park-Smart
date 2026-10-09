@@ -1,0 +1,170 @@
+@import "tailwindcss";
+
+:root {
+  --bg-main: #0B0E13;
+  --surface-elevated: #121720;
+  --surface-card: #171D27;
+  --surface-hover: #1E2532;
+  --text-primary: #F4F4F5;
+  --text-muted: #A1A1AA;
+  --text-dim: #71717A;
+  --signal-orange: #F05A28;
+  --signal-orange-hover: #DC4C1C;
+  --border-subtle: #292E38;
+  --border-hover: #3E4552;
+  --accent-olive: #68715B;
+  --accent-olive-light: #828E73;
+}
+
+body {
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+  letter-spacing: -0.01em;
+}
+
+/* Monospace telemetry styles */
+.font-mono-tech {
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: -0.02em;
+}
+
+/* Mobility Panel Styling */
+.panel-card {
+  background-color: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  transition: border-color 200ms ease, background-color 200ms ease;
+}
+
+.panel-card:hover {
+  border-color: var(--border-hover);
+}
+
+.panel-elevated {
+  background-color: var(--surface-elevated);
+  border: 1px solid var(--border-subtle);
+}
+
+/* Hero Entrance Animations */
+@keyframes heroFadeUp {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 16px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes heroSlideRight {
+  0% {
+    opacity: 0;
+    transform: translate3d(24px, 0, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes breathingPulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.animate-hero-headline {
+  animation: heroFadeUp 650ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-hero-subtext {
+  animation: heroFadeUp 650ms cubic-bezier(0.16, 1, 0.3, 1) 120ms forwards;
+  opacity: 0;
+}
+
+.animate-hero-cta {
+  animation: heroFadeUp 650ms cubic-bezier(0.16, 1, 0.3, 1) 240ms forwards;
+  opacity: 0;
+}
+
+.animate-hero-map {
+  animation: heroSlideRight 750ms cubic-bezier(0.16, 1, 0.3, 1) 180ms forwards;
+  opacity: 0;
+}
+
+.animate-live-dot {
+  animation: breathingPulse 2.4s ease-in-out infinite;
+}
+
+/* Operational ticker animation */
+@keyframes ticker {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.animate-ticker {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: ticker 40s linear infinite;
+}
+
+.animate-ticker:hover {
+  animation-play-state: paused;
+}
+
+/* Nav Link Hover Underline Indicator */
+.nav-link {
+  position: relative;
+  transition: color 180ms ease;
+}
+
+.nav-link::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 0;
+  width: 0;
+  height: 2px;
+  background-color: var(--signal-orange);
+  transition: width 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.nav-link:hover::after {
+  width: 100%;
+}
+
+/* Custom crisp dark scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-main);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hover);
+}
+
+/* Reduced motion accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

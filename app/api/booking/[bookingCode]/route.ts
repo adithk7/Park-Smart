@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { checkAndReleaseExpiredBookings } from '@/lib/booking';
+import { deriveBookingQrToken, hashQrToken, buildQrPayload } from '@/lib/qr';
 
 /**
  * GET /api/booking/[bookingCode]
@@ -53,6 +54,18 @@ export async function GET(
     return NextResponse.json({ success: false, message: 'Booking not found' }, { status: 404 });
   }
 
+  // Ensure qrTokenHash exists
+  const qrToken = deriveBookingQrToken(booking.id, booking.bookingCode);
+  if (!booking.qrTokenHash) {
+    const hash = hashQrToken(qrToken);
+    await db.booking.update({
+      where: { id: booking.id },
+      data: { qrTokenHash: hash },
+    });
+  }
+
+  const qrPayload = buildQrPayload(booking.bookingCode, qrToken);
+
   const now = new Date();
   const windowStartTime = new Date(booking.estimatedArrival.getTime() - 15 * 60 * 1000);
   const isWindowOpen = now.getTime() >= windowStartTime.getTime();
@@ -62,6 +75,8 @@ export async function GET(
     success: true,
     data: {
       ...booking,
+      qrToken,
+      qrPayload,
       isWindowOpen,
       minutesUntilWindow,
     },

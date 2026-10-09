@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { LogoutButton } from '@/components/logout-button';
 import { StaffControls } from '@/components/staff-controls';
+import { QrGateScanner } from '@/components/qr-gate-scanner';
+import { getParkingAvailability } from '@/lib/availability';
 import { 
   Car, 
   ShieldCheck, 
@@ -30,30 +32,27 @@ export default async function StaffDashboardPage() {
   }
 
   // Multi-tenant query scoped strictly to session.parkingAreaId
-  const [parkingArea, staffProfile, activeSessions] = await Promise.all([
+  const [parkingArea, activeSessions, availability] = await Promise.all([
     db.parkingArea.findUnique({
       where: { id: session.parkingAreaId },
       include: { barrierGates: true },
     }),
-    session.role === 'STAFF'
-      ? db.staff.findUnique({
-          where: { id: session.userId },
-        })
-      : null,
     db.visitSession.findMany({
       where: { parkingAreaId: session.parkingAreaId, status: { in: ['OPEN', 'PARKED'] } },
       take: 5,
       orderBy: { entryAt: 'desc' },
     }),
+    getParkingAvailability(session.parkingAreaId),
   ]);
 
   if (!parkingArea) {
     redirect('/login');
   }
 
-  const occupiedSlots = activeSessions.length;
-  const availableSlots = Math.max(0, parkingArea.totalCapacity - occupiedSlots);
-  const occupancyPercent = Math.min(100, Math.round((occupiedSlots / parkingArea.totalCapacity) * 100));
+  const totalSlots = availability.total || parkingArea.totalCapacity;
+  const occupiedSlots = availability.occupied;
+  const availableSlots = availability.available;
+  const occupancyPercent = totalSlots > 0 ? Math.min(100, Math.round((occupiedSlots / totalSlots) * 100)) : 0;
 
   return (
     <div className="min-h-screen bg-[#0B0E13] text-[#F4F4F5] flex flex-col justify-between p-4 md:p-8">
@@ -77,7 +76,7 @@ export default async function StaffDashboardPage() {
           <div className="text-right hidden sm:block">
             <span className="text-[#A1A1AA] block text-[11px]">LOGGED IN AS:</span>
             <span className="font-bold text-white">
-              {staffProfile ? `${staffProfile.staffCode} - ${staffProfile.name}` : session.name}
+              {session.name}
             </span>
           </div>
           <LogoutButton />
@@ -99,14 +98,19 @@ export default async function StaffDashboardPage() {
                 {parkingArea.name}
               </h1>
               <p className="text-xs text-[#A1A1AA] mt-1 font-mono-tech">
-                ZONE: {staffProfile?.assignedZone || 'ALL ZONES'} &bull; SITE TIER {parkingArea.tier} &bull; TARIFF ₹{parkingArea.hourlyRate}/HR
+                ZONE: ALL ZONES &bull; SITE TIER {parkingArea.tier} &bull; TARIFF ₹{parkingArea.hourlyRate}/HR
               </p>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              <Link href="/staff/qr-scan">
+                <Button variant="primary" size="sm" className="bg-[#F05A28] hover:bg-[#DC4C1C] text-white">
+                  <QrCode className="w-3.5 h-3.5 mr-1" /> QR GATE SCANNER &rarr;
+                </Button>
+              </Link>
               <Link href="/staff/entry">
-                <Button variant="primary" size="sm">
-                  OPEN GATE CONSOLE &rarr;
+                <Button variant="outline" size="sm">
+                  ENTRY CONSOLE &rarr;
                 </Button>
               </Link>
               {session.role === 'ADMIN' && (
@@ -199,11 +203,11 @@ export default async function StaffDashboardPage() {
               </div>
               <div className="flex justify-between py-1.5 border-b border-[#292E38]">
                 <span className="text-[#A1A1AA]">ATTENDANT ID:</span>
-                <span className="font-bold text-white">{staffProfile?.staffCode || 'ADMIN'}</span>
+                <span className="font-bold text-white">{session.role}</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-[#292E38]">
                 <span className="text-[#A1A1AA]">ASSIGNED ZONE:</span>
-                <span className="font-bold text-[#F05A28]">{staffProfile?.assignedZone || 'ALL LEVELS'}</span>
+                <span className="font-bold text-[#F05A28]">ALL LEVELS</span>
               </div>
               <div className="flex justify-between py-1.5">
                 <span className="text-[#A1A1AA]">AUDIT TRAIL:</span>
@@ -213,6 +217,11 @@ export default async function StaffDashboardPage() {
           </div>
 
         </div>
+
+        {/* QR Gate Scanner Section */}
+        <section id="qr-gate-scanner">
+          <QrGateScanner facilityCode={parkingArea.code} facilityName={parkingArea.name} />
+        </section>
 
         {/* Staff Operations Console: Slots & EV Controls */}
         <StaffControls />

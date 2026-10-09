@@ -58,6 +58,7 @@ model ParkingArea {
   bookings          Booking[]
   chargingPoints    EvChargingPoint[]
   evReservations    EvReservation[]
+  gateScanLogs      GateScanLog[]
 }
 
 // System Users (ADMIN or STAFF scoped to a ParkingArea)
@@ -421,6 +422,11 @@ model Booking {
   // Statuses: PENDING, CONFIRMED, CHECKED_IN, COMPLETED, CANCELLED, EXPIRED
   status              String             @default("PENDING")
   driverPhone         String?
+  // Gate QR verification & Lifecycle
+  qrTokenHash         String?            @unique
+  entryAt             DateTime?
+  exitAt              DateTime?
+  scanCount           Int                @default(0)
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
@@ -428,13 +434,39 @@ model Booking {
   slot                ParkingSlot?       @relation(fields: [slotId], references: [id], onDelete: SetNull)
   evChargingPoint     EvChargingPoint?   @relation(fields: [evChargingPointId], references: [id], onDelete: SetNull)
   evReservation       EvReservation?
+  gateScanLogs        GateScanLog[]
 
   @@index([parkingAreaId])
   @@index([slotId])
   @@index([status])
   @@index([bookingCode])
   @@index([estimatedArrival])
+  @@index([qrTokenHash])
 }
+
+// Gate scan audit log for entry & exit QR operations
+model GateScanLog {
+  id            String       @id @default(cuid())
+  bookingId     String?
+  parkingAreaId String
+  gateType      String       // "ENTRY" | "EXIT"
+  staffId       String?
+  staffName     String?
+  scanMethod    String       @default("QR_CAMERA") // "QR_CAMERA" | "MANUAL_LOOKUP"
+  result        String       // "SUCCESS" | "REJECTED"
+  reason        String?
+  createdAt     DateTime     @default(now())
+
+  booking       Booking?     @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  parkingArea   ParkingArea  @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@index([parkingAreaId])
+  @@index([gateType])
+  @@index([result])
+  @@index([createdAt])
+}
+
 
 model EvChargingPoint {
   id            String          @id @default(cuid())

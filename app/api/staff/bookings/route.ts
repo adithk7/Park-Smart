@@ -64,11 +64,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, message: 'Booking not found' }, { status: 404 });
   }
 
+  const now = new Date();
+
   if (action === 'CHECK_IN') {
+    if (booking.status === 'CHECKED_IN') {
+      return NextResponse.json({ success: false, message: 'Already checked in' }, { status: 400 });
+    }
+    if (booking.status === 'COMPLETED') {
+      return NextResponse.json({ success: false, message: 'Booking already completed' }, { status: 400 });
+    }
+
     await db.$transaction(async (tx) => {
       await tx.booking.update({
         where: { id: booking.id },
-        data: { status: 'CHECKED_IN' },
+        data: {
+          status: 'CHECKED_IN',
+          entryAt: now,
+          scanCount: { increment: 1 },
+        },
       });
       if (booking.slotId) {
         await tx.parkingSlot.update({
@@ -82,6 +95,18 @@ export async function POST(req: NextRequest) {
           data: { status: 'IN_USE' },
         });
       }
+      await tx.gateScanLog.create({
+        data: {
+          bookingId: booking.id,
+          parkingAreaId: session.parkingAreaId,
+          gateType: 'ENTRY',
+          staffId: session.userId,
+          staffName: session.name,
+          scanMethod: 'MANUAL_LOOKUP',
+          result: 'SUCCESS',
+          reason: 'Manual staff console entry check-in',
+        },
+      });
     });
     return NextResponse.json({ success: true, message: 'Vehicle check-in recorded. Slot marked as OCCUPIED.' });
   }
@@ -95,10 +120,19 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === 'DEPARTURE') {
+    if (booking.status === 'COMPLETED') {
+      return NextResponse.json({ success: false, message: 'Booking already completed' }, { status: 400 });
+    }
+
     await db.$transaction(async (tx) => {
       await tx.booking.update({
         where: { id: booking.id },
-        data: { status: 'COMPLETED', paymentStatus: 'PAID' },
+        data: {
+          status: 'COMPLETED',
+          exitAt: now,
+          scanCount: { increment: 1 },
+          paymentStatus: 'PAID',
+        },
       });
       if (booking.slotId) {
         await tx.parkingSlot.update({
@@ -112,6 +146,18 @@ export async function POST(req: NextRequest) {
           data: { status: 'AVAILABLE' },
         });
       }
+      await tx.gateScanLog.create({
+        data: {
+          bookingId: booking.id,
+          parkingAreaId: session.parkingAreaId,
+          gateType: 'EXIT',
+          staffId: session.userId,
+          staffName: session.name,
+          scanMethod: 'MANUAL_LOOKUP',
+          result: 'SUCCESS',
+          reason: 'Manual staff console exit departure',
+        },
+      });
     });
     return NextResponse.json({ success: true, message: 'Vehicle departure recorded. Slot and EV point released.' });
   }

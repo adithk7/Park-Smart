@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { validatePlate } from '@/lib/plate';
+import crypto from 'crypto';
 import {
   checkAndReleaseExpiredBookings,
   checkEvChargingAvailability,
   findCompatibleSlot,
 } from '@/lib/booking';
+import { generateBookingQrToken, buildQrPayload } from '@/lib/qr';
 
 /**
  * POST /api/booking/create
@@ -131,13 +133,18 @@ export async function POST(req: NextRequest) {
   }
 
   // 9. Execute DB Transaction
-  const booking = await db.$transaction(async (tx) => {
+  const { booking, qrToken, qrPayload } = await db.$transaction(async (tx) => {
     // Generate unique short code
     const count = await tx.booking.count();
     const bookingCode = `BK-${String(count + 1001).padStart(5, '0')}`;
+    const bookingId = crypto.randomUUID();
+
+    const { token, hash } = generateBookingQrToken(bookingId, bookingCode);
+    const payload = buildQrPayload(bookingCode, token);
 
     const newBooking = await tx.booking.create({
       data: {
+        id: bookingId,
         bookingCode,
         parkingAreaId,
         slotId: slot.id,
@@ -159,6 +166,7 @@ export async function POST(req: NextRequest) {
         paymentStatus,
         status: initialStatus,
         driverPhone: driverPhone || null,
+        qrTokenHash: hash,
       },
     });
 
@@ -183,7 +191,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return newBooking;
+    return { booking: newBooking, qrToken: token, qrPayload: payload };
   });
 
   return NextResponse.json({
@@ -202,6 +210,8 @@ export async function POST(req: NextRequest) {
       status: booking.status,
       windowOpen: isWindowOpen,
       minutesUntilWindow,
+      qrToken,
+      qrPayload,
     },
   });
 }

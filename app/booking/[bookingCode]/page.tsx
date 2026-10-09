@@ -36,6 +36,10 @@ interface BookingDetailData {
   paymentMethod: string;
   paymentStatus: string;
   status: string;
+  qrPayload?: string;
+  qrToken?: string;
+  entryAt?: string;
+  exitAt?: string;
   isWindowOpen: boolean;
   minutesUntilWindow: number;
   parkingArea: {
@@ -201,12 +205,24 @@ export default function BookingConfirmationPage({ params }: { params: Promise<{ 
           </div>
 
           {/* QR Code */}
-          <div className="bg-white p-4 rounded flex flex-col items-center justify-center space-y-2">
-            <QRCodeImage value={currentUrl} size={180} />
-            <span className="text-black font-extrabold text-xs tracking-widest uppercase">
+          <div className="bg-white p-5 rounded-lg flex flex-col items-center justify-center space-y-2 text-center shadow-lg">
+            <QRCodeImage value={booking.qrPayload || currentUrl} size={190} />
+            <span className="text-black font-black text-sm tracking-widest uppercase font-mono-tech mt-1">
               {booking.bookingCode}
             </span>
-            <span className="text-[10px] text-zinc-500">Scan at entrance gate scanner for instant barrier release</span>
+            <span className="text-[11px] font-semibold text-zinc-600 max-w-[260px] leading-tight">
+              Present this pass at Entry Gate &amp; Exit Gate scanners for automated verification.
+            </span>
+            {booking.status === 'CHECKED_IN' && booking.entryAt && (
+              <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded uppercase font-mono-tech">
+                ENTERED: {new Date(booking.entryAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+            {booking.status === 'COMPLETED' && booking.exitAt && (
+              <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded uppercase font-mono-tech">
+                EXITED: {new Date(booking.exitAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
           </div>
 
           {/* Slot Allocation Box */}

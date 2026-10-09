@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { LogoutButton } from '@/components/logout-button';
 import { PublishToggle } from '@/components/publish-toggle';
 import { AdminFacilitySettings } from '@/components/admin-facility-settings';
+import { StaffAccessSettings } from '@/components/staff-access-settings';
 import { 
   Users, 
   Car, 
@@ -114,9 +115,9 @@ export default async function AdminDashboardPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              <Link href="/admin/staff">
+              <Link href="/staff">
                 <Button variant="primary" size="md">
-                  <Users className="w-4 h-4 mr-2" /> MANAGE STAFF ROSTER <ArrowRight className="w-4 h-4 ml-1" />
+                  <Car className="w-4 h-4 mr-2" /> VIEW GATE TERMINAL <ArrowRight className="w-4 h-4 ml-1" />
                 </Button>
               </Link>
             </div>
@@ -159,6 +160,12 @@ export default async function AdminDashboardPage() {
 
         {/* Admin Facility Configuration Panel */}
         <AdminFacilitySettings initialArea={parkingArea} />
+
+        {/* Staff Access Settings - Common Password */}
+        <StaffAccessSettings
+          parkingCode={parkingArea.code}
+          hasPassword={!!parkingArea.staffPasswordHash}
+        />
 
         {/* Quick Navigation Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

@@ -137,20 +137,20 @@ export async function POST(req: NextRequest) {
     }
 
     // ==========================================
-    // 2. STAFF LOGIN FLOW (Area Code + Staff ID + Shared Password)
+    // 2. STAFF LOGIN FLOW — Parking Area Code + Shared Password only
+    //    No individual staff account or staff ID required.
     // ==========================================
     if (type === 'staff') {
-      const { parkingCode, staffCode, staffPassword } = body;
-      if (!parkingCode || !staffCode || !staffPassword) {
+      const { parkingCode, staffPassword } = body;
+      if (!parkingCode || !staffPassword) {
         return NextResponse.json(
-          { success: false, message: 'Parking Code, Staff ID, and Staff Password are required' },
+          { success: false, message: 'Parking Area Code and Staff Password are required' },
           { status: 400 }
         );
       }
 
       const cleanParkingCode = parkingCode.trim().toUpperCase();
-      const cleanStaffCode = staffCode.trim().toUpperCase();
-      const identifier = `staff:${cleanParkingCode}:${cleanStaffCode}`;
+      const identifier = `staff:${cleanParkingCode}`;
 
       // Check Rate Limit lockout
       const rateLimit = await checkRateLimit(identifier);
@@ -165,7 +165,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Find parking area
+      // Find parking area by code
       const parkingArea = await db.parkingArea.findUnique({
         where: { code: cleanParkingCode },
       });
@@ -175,9 +175,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           {
             success: false,
-            message: locked 
-              ? 'Too many failed attempts. Terminal locked for 10 minutes.' 
-              : 'Invalid Parking Area Code or Password.',
+            message: locked
+              ? 'Too many failed attempts. Terminal locked for 10 minutes.'
+              : 'Invalid parking area code or password.',
             isLocked: locked,
           },
           { status: 401 }
@@ -192,50 +192,18 @@ export async function POST(req: NextRequest) {
           parkingAreaId: parkingArea.id,
           actorRole: 'STAFF',
           action: 'LOGIN_FAILED',
-          meta: { reason: 'Wrong staff password', staffCode: cleanStaffCode },
+          meta: { reason: 'Wrong staff password', code: cleanParkingCode },
         });
 
         return NextResponse.json(
           {
             success: false,
-            message: locked 
-              ? 'Too many failed attempts. Terminal locked for 10 minutes.' 
-              : 'Invalid staff password for this facility.',
+            message: locked
+              ? 'Too many failed attempts. Terminal locked for 10 minutes.'
+              : 'Invalid parking area code or password.',
             isLocked: locked,
           },
           { status: 401 }
-        );
-      }
-
-      // Find staff record
-      const staff = await db.staff.findUnique({
-        where: {
-          parkingAreaId_staffCode: {
-            parkingAreaId: parkingArea.id,
-            staffCode: cleanStaffCode,
-          },
-        },
-      });
-
-      if (!staff) {
-        const { locked } = await recordFailedAttempt(identifier);
-        return NextResponse.json(
-          {
-            success: false,
-            message: `Staff ID [${cleanStaffCode}] was not found in facility [${cleanParkingCode}]. Please check with your administrator.`,
-            isLocked: locked,
-          },
-          { status: 404 }
-        );
-      }
-
-      if (!staff.active) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: `Staff profile [${cleanStaffCode}] is currently disabled. Contact your facility administrator.`,
-          },
-          { status: 403 }
         );
       }
 
@@ -245,31 +213,23 @@ export async function POST(req: NextRequest) {
       // Log successful staff login
       await logAuditEvent({
         parkingAreaId: parkingArea.id,
-        actorId: staff.id,
         actorRole: 'STAFF',
         action: 'LOGIN_SUCCESS',
-        meta: { staffCode: staff.staffCode, name: staff.name, zone: staff.assignedZone },
+        meta: { code: cleanParkingCode, facility: parkingArea.name },
       });
 
-      // Issue signed JWT cookie
+      // Issue signed JWT cookie — userId is parkingArea.id for staff (no individual user record)
       const token = await signToken({
-        userId: staff.id,
+        userId: parkingArea.id,
         role: 'STAFF',
         parkingAreaId: parkingArea.id,
-        name: staff.name,
-        staffCode: staff.staffCode,
+        name: `Staff — ${parkingArea.name}`,
         parkingCode: parkingArea.code,
       });
 
       const response = NextResponse.json({
         success: true,
         redirect: '/staff',
-        staff: {
-          id: staff.id,
-          staffCode: staff.staffCode,
-          name: staff.name,
-          assignedZone: staff.assignedZone,
-        },
         parkingArea: {
           id: parkingArea.id,
           name: parkingArea.name,
@@ -293,7 +253,7 @@ export async function POST(req: NextRequest) {
       { success: false, message: 'Invalid authentication type' },
       { status: 400 }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Login error:', error);
     return NextResponse.json(
       { success: false, message: 'Internal server error during authentication' },

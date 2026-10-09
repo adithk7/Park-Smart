@@ -129,13 +129,31 @@ export async function checkEvChargingAvailability(
 }
 
 /**
- * Ensures a parking area has at least a default Level and Zone with slots if none exist.
+ * Ensures a parking area has individual slot records matching its configured capacity.
+ * - Uses twoWheelerCapacity and fourWheelerCapacity as source of truth.
+ * - Generates B001..B{2W} for 2W and C001..C{4W} for 4W slots.
+ * - Never deletes existing occupied/reserved/blocked slots.
+ * - Idempotent: safe to call multiple times.
  */
 export async function ensureDefaultSlots(parkingAreaId: string) {
-  const existingCount = await db.parkingSlot.count({ where: { parkingAreaId } });
-  if (existingCount > 0) return;
+  const area = await db.parkingArea.findUnique({
+    where: { id: parkingAreaId },
+    select: {
+      twoWheelerCapacity: true,
+      fourWheelerCapacity: true,
+      otherCapacity: true,
+      totalCapacity: true,
+    },
+  });
+  if (!area) return;
 
-  // Create Level 1 -> Zone A -> 12 slots (A01..A12)
+  const existingCount = await db.parkingSlot.count({ where: { parkingAreaId } });
+
+  // If slots already exist and match capacity, nothing to do
+  const expectedCount = (area.twoWheelerCapacity || 0) + (area.fourWheelerCapacity || 0) + (area.otherCapacity || 0);
+  if (existingCount >= expectedCount && existingCount > 0) return;
+
+  // Ensure Level 1 and Zone A exist
   let level = await db.level.findFirst({ where: { parkingAreaId, name: 'Level 1' } });
   if (!level) {
     level = await db.level.create({
@@ -150,23 +168,66 @@ export async function ensureDefaultSlots(parkingAreaId: string) {
     });
   }
 
-  const slotData = [];
-  for (let i = 1; i <= 12; i++) {
-    const num = String(i).padStart(2, '0');
-    const vType = i <= 2 ? '2W' : i === 3 ? 'EV' : '4W';
-    slotData.push({
-      parkingAreaId,
-      zoneId: zone.id,
-      slotNumber: `A${num}`,
-      vehicleType: vType,
-      status: 'FREE',
-    });
+  // Get existing slot numbers to avoid duplicates
+  const existingSlots = await db.parkingSlot.findMany({
+    where: { parkingAreaId },
+    select: { slotNumber: true },
+  });
+  const existingNumbers = new Set(existingSlots.map((s) => s.slotNumber));
+
+  const slotsToCreate = [];
+
+  // Generate 2W slots: B001, B002...
+  for (let i = 1; i <= (area.twoWheelerCapacity || 0); i++) {
+    const slotNumber = `B${String(i).padStart(3, '0')}`;
+    if (!existingNumbers.has(slotNumber)) {
+      slotsToCreate.push({
+        parkingAreaId,
+        zoneId: zone.id,
+        slotNumber,
+        vehicleType: '2W',
+        status: 'FREE',
+      });
+    }
   }
 
-  for (const s of slotData) {
-    await db.parkingSlot.create({ data: s }).catch(() => {});
+  // Generate 4W slots: C001, C002...
+  for (let i = 1; i <= (area.fourWheelerCapacity || 0); i++) {
+    const slotNumber = `C${String(i).padStart(3, '0')}`;
+    if (!existingNumbers.has(slotNumber)) {
+      slotsToCreate.push({
+        parkingAreaId,
+        zoneId: zone.id,
+        slotNumber,
+        vehicleType: '4W',
+        status: 'FREE',
+      });
+    }
+  }
+
+  // Generate Other slots: O001, O002...
+  for (let i = 1; i <= (area.otherCapacity || 0); i++) {
+    const slotNumber = `O${String(i).padStart(3, '0')}`;
+    if (!existingNumbers.has(slotNumber)) {
+      slotsToCreate.push({
+        parkingAreaId,
+        zoneId: zone.id,
+        slotNumber,
+        vehicleType: 'OTHER',
+        status: 'FREE',
+      });
+    }
+  }
+
+  // Bulk create in batches of 50
+  for (let i = 0; i < slotsToCreate.length; i += 50) {
+    const batch = slotsToCreate.slice(i, i + 50);
+    for (const slot of batch) {
+      await db.parkingSlot.create({ data: slot }).catch(() => {});
+    }
   }
 }
+
 
 /**
  * 3. Calculate Real-Time Dynamic Slot & Availability Breakdown

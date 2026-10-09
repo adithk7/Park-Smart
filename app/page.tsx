@@ -23,6 +23,7 @@ import {
   Building2,
 } from 'lucide-react';
 import { db } from '@/lib/db';
+import { getParkingAvailability } from '@/lib/availability';
 
 export const dynamic = 'force-dynamic';
 
@@ -73,11 +74,17 @@ export default async function LandingPage() {
     // Graceful fallback
   }
 
-  // Ticker values for the existing live-telemetry bar (kept exactly as before)
+  // Ticker values for the live-telemetry bar derived from centralized availability helper
+  let tenantAvailability = null;
+  if (tenant) {
+    try {
+      tenantAvailability = await getParkingAvailability(tenant.id);
+    } catch {}
+  }
   const activeVenueName = tenant?.name || 'Phoenix Citadel - North Gate';
-  const totalCapacity = tenant?.totalCapacity || 50;
-  const occupiedCount = 12;
-  const availableCount = totalCapacity - occupiedCount;
+  const totalCapacity = tenantAvailability?.total || tenant?.totalCapacity || 50;
+  const occupiedCount = tenantAvailability?.occupied ?? 12;
+  const availableCount = tenantAvailability?.available ?? Math.max(0, totalCapacity - occupiedCount);
   const hourlyRate = tenant?.hourlyRate || 30;
 
   // Slot data for the hero map — static mock (real data flows from /admin/layout)

@@ -234,6 +234,39 @@ export function ParkingDiscovery({ initialAreas }: Props) {
         </div>
       </form>
 
+      {/* Active Booking QR Pass Lookup Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-[#121720] border border-[#292E38] text-xs font-mono-tech shadow-md">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 bg-[#F05A28] inline-block animate-pulse" />
+          <span className="text-zinc-300 font-bold uppercase">ALREADY BOOKED?</span>
+          <span className="text-zinc-400 text-[11px] hidden sm:inline">Access your live gate QR pass &amp; reservation details:</span>
+        </div>
+        <div className="flex gap-2 w-full sm:w-auto">
+          <input
+            type="text"
+            id="user-pass-lookup"
+            placeholder="REF CODE (e.g. BK-1001)"
+            className="bg-[#171D27] border border-[#292E38] px-3 py-1.5 text-xs text-white uppercase font-bold placeholder-zinc-500 focus:outline-none focus:border-[#F05A28] w-full sm:w-48"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                const val = (e.currentTarget.value || '').trim();
+                if (val) window.location.href = `/booking/${val}`;
+              }
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => {
+              const el = document.getElementById('user-pass-lookup') as HTMLInputElement;
+              if (el?.value?.trim()) window.location.href = `/booking/${el.value.trim()}`;
+            }}
+            className="bg-[#171D27] hover:bg-[#232936] text-[#F05A28] border border-[#F05A28]/50 px-3 py-1.5 text-xs font-bold uppercase shrink-0"
+          >
+            VIEW PASS &rarr;
+          </button>
+        </div>
+      </div>
+
       {error && (
         <div className="flex items-center gap-2 text-[#F05A28] font-mono-tech text-xs border border-[#F05A28]/30 bg-[#F05A28]/10 px-3 py-2">
           <AlertCircle className="w-4 h-4" />

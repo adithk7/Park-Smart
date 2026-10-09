@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ArrowRight, ShieldCheck, AlertCircle, Lock } from 'lucide-react';
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectPath = searchParams.get('redirect');
@@ -16,7 +16,6 @@ export default function LoginPage() {
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [staffParkingCode, setStaffParkingCode] = useState('');
-  const [staffCode, setStaffCode] = useState('');
   const [staffPassword, setStaffPassword] = useState('');
   
   const [loading, setLoading] = useState(false);
@@ -32,7 +31,7 @@ export default function LoginPage() {
     try {
       const payload = tab === 'admin'
         ? { type: 'admin', email: adminEmail, password: adminPassword }
-        : { type: 'staff', parkingCode: staffParkingCode, staffCode, staffPassword };
+        : { type: 'staff', parkingCode: staffParkingCode, staffPassword };
 
       const res = await fetch('/api/auth/login', {
         method: 'POST',
@@ -168,26 +167,17 @@ export default function LoginPage() {
                   placeholder="e.g. BLR-MALL-4821"
                   value={staffParkingCode}
                   onChange={(e) => setStaffParkingCode(e.target.value.toUpperCase())}
-                  helperText="Unique facility code issued during onboarding."
+                  helperText="Unique code found in your Admin Dashboard → Staff Access Settings."
                   disabled={loading || isLocked}
                   required
                 />
                 <Input
-                  label="Staff ID"
-                  placeholder="e.g. ST-001"
-                  value={staffCode}
-                  onChange={(e) => setStaffCode(e.target.value.toUpperCase())}
-                  helperText="Assigned individual staff identifier."
-                  disabled={loading || isLocked}
-                  required
-                />
-                <Input
-                  label="Parking-Space Password (Shared)"
+                  label="Staff Password"
                   type="password"
                   placeholder="••••••••"
                   value={staffPassword}
                   onChange={(e) => setStaffPassword(e.target.value)}
-                  helperText="Shared password set by your facility admin."
+                  helperText="Common password set by your facility administrator."
                   disabled={loading || isLocked}
                   required
                 />
@@ -222,5 +212,13 @@ export default function LoginPage() {
         PARKSMART // ZERO-LOGIN DRIVER SESSIONS VIA QR RELAY
       </footer>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#0B0E13] text-white flex items-center justify-center font-mono-tech text-xs">LOADING PORTAL...</div>}>
+      <LoginForm />
+    </Suspense>
   );
 }

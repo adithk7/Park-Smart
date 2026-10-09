@@ -24,7 +24,6 @@ export default async function ParkingDirectoryPage() {
       venueType: true,
       tier: true,
       totalCapacity: true,
-      occupiedCount: true,
       hourlyRate: true,
       currency: true,
     },

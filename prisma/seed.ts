@@ -21,7 +21,6 @@ async function main() {
       code: 'mall-north-gate',
       tier: 2, // Tier 2 site (ANPR basic webcam + gate simulation)
       totalCapacity: 50,
-      occupiedCount: 12,
       hourlyRate: 30.0,
       currency: 'INR',
       address: 'S.G. Highway, Sector 15, Tech Zone',

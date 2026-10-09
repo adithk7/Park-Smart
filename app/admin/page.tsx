@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { LogoutButton } from '@/components/logout-button';
 import { PublishToggle } from '@/components/publish-toggle';
+import { AdminFacilitySettings } from '@/components/admin-facility-settings';
 import { 
   Users, 
   Car, 
@@ -155,6 +156,9 @@ export default async function AdminDashboardPage() {
           </div>
 
         </div>
+
+        {/* Admin Facility Configuration Panel */}
+        <AdminFacilitySettings initialArea={parkingArea} />
 
         {/* Quick Navigation Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

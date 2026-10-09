@@ -6,6 +6,7 @@ import { db } from '@/lib/db';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { LogoutButton } from '@/components/logout-button';
+import { StaffControls } from '@/components/staff-controls';
 import { 
   Car, 
   ShieldCheck, 
@@ -212,6 +213,9 @@ export default async function StaffDashboardPage() {
           </div>
 
         </div>
+
+        {/* Staff Operations Console: Slots & EV Controls */}
+        <StaffControls />
 
         {/* Security Notice for Staff */}
         <div className="border border-[#292E38] bg-[#171D27] p-4 flex items-start gap-3 text-xs text-[#A1A1AA] font-mono-tech">

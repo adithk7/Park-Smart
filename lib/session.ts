@@ -77,12 +77,8 @@ export async function transitionSession(
     },
   });
 
-  // Update bay occupancy counter
+  // Update bay occupancy status on slot
   if (to === 'PARKED') {
-    await db.parkingArea.update({
-      where: { id: parkingAreaId },
-      data: { occupiedCount: { increment: 1 } },
-    });
     if (extra?.slotId) {
       await db.parkingSlot.update({
         where: { id: extra.slotId },
@@ -91,10 +87,6 @@ export async function transitionSession(
     }
   }
   if (to === 'EXITED') {
-    await db.parkingArea.update({
-      where: { id: parkingAreaId },
-      data: { occupiedCount: { decrement: 1 } },
-    });
     if (session.slotId) {
       await db.parkingSlot.update({
         where: { id: session.slotId },

@@ -24,8 +24,15 @@ interface PublicParkingArea {
   venueType: string;
   tier: number;
   totalCapacity: number;
-  occupiedCount: number;
+  availableSlots?: number;
+  occupiedCount?: number;
+  reservedSlots?: number;
+  maintenanceSlots?: number;
   hourlyRate: number;
+  hourlyRate2W?: number;
+  hourlyRate4W?: number;
+  evChargingAvailable?: boolean;
+  evHourlyRate?: number;
   currency: string;
 }
 
@@ -47,7 +54,7 @@ function availabilityDisplay(area: PublicParkingArea): {
   color: string;
   estimated: boolean;
 } {
-  const avail = area.totalCapacity - area.occupiedCount;
+  const avail = area.availableSlots !== undefined ? area.availableSlots : Math.max(0, area.totalCapacity - (area.occupiedCount ?? 0));
   const pct = area.totalCapacity > 0 ? avail / area.totalCapacity : 0;
 
   // Tier 0 = manual tally only; flag as estimated
@@ -58,14 +65,14 @@ function availabilityDisplay(area: PublicParkingArea): {
   }
   if (pct >= 0.4) return { label: `${avail} spaces free`, color: 'text-[#9EB08C]', estimated };
   if (pct >= 0.1) return { label: `${avail} spaces (limited)`, color: 'text-yellow-500', estimated };
-  return { label: 'Nearly full', color: 'text-[#F05A28]', estimated };
+  return { label: `${avail} spaces free (nearly full)`, color: 'text-[#F05A28]', estimated };
 }
 
 function ParkingCard({ area }: { area: PublicParkingArea }) {
   const avail = availabilityDisplay(area);
   return (
     <div
-      className="group border border-[#292E38] bg-[#121720] hover:border-[#3E4552] hover:-translate-y-0.5 transition-all duration-200 flex flex-col"
+      className="group border border-[#292E38] bg-[#121720] hover:border-[#F05A28]/50 hover:-translate-y-0.5 transition-all duration-200 flex flex-col justify-between"
       style={{ willChange: 'transform' }}
     >
       {/* Card Header */}
@@ -90,7 +97,7 @@ function ParkingCard({ area }: { area: PublicParkingArea }) {
         {/* Availability */}
         <div className="flex items-center gap-2">
           <span className={`font-mono-tech text-xs font-bold ${avail.color}`}>
-            {avail.label}
+            ● {avail.label}
           </span>
           {avail.estimated && (
             <span className="font-mono-tech text-[9px] text-[#71717A] border border-[#292E38] px-1 py-0.5">
@@ -99,26 +106,28 @@ function ParkingCard({ area }: { area: PublicParkingArea }) {
           )}
         </div>
 
-        {/* Tags row */}
+        {/* Rates & Amenities row */}
         <div className="flex flex-wrap gap-1.5 font-mono-tech text-[10px]">
-          <span className="border border-[#292E38] px-1.5 py-0.5 text-[#A1A1AA]">
-            {VENUE_TYPE_LABELS[area.venueType] ?? area.venueType}
-          </span>
           <span className="border border-[#292E38] px-1.5 py-0.5 text-[#A1A1AA]">
             {area.totalCapacity} BAYS
           </span>
-          <span className="border border-[#292E38] px-1.5 py-0.5 text-[#A1A1AA]">
-            ₹{area.hourlyRate}/HR
+          <span className="border border-[#292E38] px-1.5 py-0.5 text-[#9EB08C]">
+            2W: ₹{area.hourlyRate2W || 15}/HR &bull; 4W: ₹{area.hourlyRate4W || area.hourlyRate || 30}/HR
           </span>
+          {area.evChargingAvailable && (
+            <span className="border border-amber-500/40 bg-amber-950/20 text-amber-300 px-1.5 py-0.5 flex items-center gap-1 font-bold">
+              <Zap className="w-3 h-3 text-amber-400" /> EV Charging — ₹{area.evHourlyRate || 50}/hour
+            </span>
+          )}
         </div>
       </div>
 
       {/* Footer CTA */}
-      <div className="border-t border-[#292E38] px-5 py-3 flex items-center justify-between">
+      <div className="border-t border-[#292E38] px-5 py-3 flex items-center justify-between bg-[#171D27]/50">
         <span className="font-mono-tech text-[10px] text-[#71717A]">{area.code}</span>
         <Link
           href={`/area/${area.code}`}
-          className="text-[#F05A28] font-mono-tech text-[11px] font-bold flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+          className="text-white bg-[#F05A28] hover:bg-[#d0461b] font-mono-tech text-[11px] font-extrabold px-3 py-1.5 flex items-center gap-1 transition-all shadow"
         >
           VIEW DETAILS <ChevronRight className="w-3.5 h-3.5" />
         </Link>

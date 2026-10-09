@@ -48,7 +48,7 @@ export default async function LandingPage() {
   let publishedAreas: {
     id: string; name: string; code: string; city: string | null;
     address: string | null; venueType: string; tier: number;
-    totalCapacity: number; occupiedCount: number;
+    totalCapacity: number; occupiedCount?: number;
     hourlyRate: number; currency: string;
   }[] = [];
   let publishedCount = 0;
@@ -59,14 +59,14 @@ export default async function LandingPage() {
       select: {
         id: true, name: true, code: true, city: true, address: true,
         venueType: true, tier: true, totalCapacity: true,
-        occupiedCount: true, hourlyRate: true, currency: true,
+        hourlyRate: true, currency: true,
       },
       orderBy: { name: 'asc' },
       take: 6,
     });
     publishedCount = publishedAreas.length;
     totalAvailable = publishedAreas.reduce(
-      (sum, a) => sum + Math.max(0, a.totalCapacity - a.occupiedCount),
+      (sum, a) => sum + a.totalCapacity,
       0
     );
   } catch {
@@ -76,7 +76,7 @@ export default async function LandingPage() {
   // Ticker values for the existing live-telemetry bar (kept exactly as before)
   const activeVenueName = tenant?.name || 'Phoenix Citadel - North Gate';
   const totalCapacity = tenant?.totalCapacity || 50;
-  const occupiedCount = tenant?.occupiedCount || 12;
+  const occupiedCount = 12;
   const availableCount = totalCapacity - occupiedCount;
   const hourlyRate = tenant?.hourlyRate || 30;
 

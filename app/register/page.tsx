@@ -13,7 +13,12 @@ import {
   ShieldCheck, 
   Eye, 
   EyeOff, 
-  Key
+  Key,
+  Zap,
+  Sparkles,
+  AlertTriangle,
+  Car,
+  Bike
 } from 'lucide-react';
 
 interface FormState {
@@ -30,6 +35,18 @@ interface FormState {
   siteTier: number;
   levels: number;
   totalSlots: number;
+  twoWheelerCapacity: number;
+  fourWheelerCapacity: number;
+  otherCapacity: number;
+  hourlyRate2W: number;
+  hourlyRate4W: number;
+  evChargingAvailable: boolean;
+  evPointsCount: number;
+  evHourlyRate: number;
+  carWashAvailable: boolean;
+  carWashRate: number;
+  openingTime: string;
+  closingTime: string;
   staffPassword: string;
 }
 
@@ -43,8 +60,20 @@ const initialForm: FormState = {
   address: '',
   venueType: 'BOTH',
   siteTier: 2,
-  levels: 2,
+  levels: 1,
   totalSlots: 100,
+  twoWheelerCapacity: 60,
+  fourWheelerCapacity: 40,
+  otherCapacity: 0,
+  hourlyRate2W: 15.0,
+  hourlyRate4W: 30.0,
+  evChargingAvailable: true,
+  evPointsCount: 5,
+  evHourlyRate: 50.0,
+  carWashAvailable: true,
+  carWashRate: 150.0,
+  openingTime: '00:00',
+  closingTime: '23:59',
   staffPassword: '',
 };
 
@@ -66,15 +95,31 @@ export default function RegisterPage() {
   } | null>(null);
 
   const updateField = (field: keyof FormState, value: any) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-    if (errors[field]) {
+    setForm((prev) => {
+      const next = { ...prev, [field]: value };
+      // Auto-adjust 4W capacity if totalSlots changed to keep 2W + 4W + other = total
+      if (field === 'totalSlots') {
+        const total = Math.max(1, Number(value));
+        const twoW = Math.min(total, prev.twoWheelerCapacity);
+        const fourW = Math.max(0, total - twoW - prev.otherCapacity);
+        next.twoWheelerCapacity = twoW;
+        next.fourWheelerCapacity = fourW;
+      }
+      return next;
+    });
+
+    if (errors[field] || errors.totalSlots) {
       setErrors((prev) => {
         const next = { ...prev };
         delete next[field];
+        delete next.totalSlots;
         return next;
       });
     }
   };
+
+  const sumCapacities = form.twoWheelerCapacity + form.fourWheelerCapacity + form.otherCapacity;
+  const isCapacityMatching = sumCapacities === form.totalSlots;
 
   const validateStep1 = () => {
     const errs: Record<string, string> = {};
@@ -111,6 +156,9 @@ export default function RegisterPage() {
     }
     if (!form.totalSlots || form.totalSlots < 1) {
       errs.totalSlots = 'Must have at least 1 parking slot';
+    }
+    if (!isCapacityMatching) {
+      errs.totalSlots = `Capacity mismatch: Two-wheeler (${form.twoWheelerCapacity}) + Four-wheeler (${form.fourWheelerCapacity}) + Other (${form.otherCapacity}) = ${sumCapacities}, which does not match Total Capacity (${form.totalSlots})`;
     }
     if (!form.staffPassword || form.staffPassword.length < 4) {
       errs.staffPassword = 'Staff shared password must be at least 4 characters';
@@ -333,15 +381,15 @@ export default function RegisterPage() {
 
         {/* STEP 2: Parking Space Setup */}
         {step === 2 && (
-          <div className="border border-[#292E38] bg-[#121720] p-6 sm:p-8 shadow-2xl">
-            <form onSubmit={handleFinalSubmit} className="space-y-6">
+          <div className="border border-[#292E38] bg-[#121720] p-6 sm:p-8 shadow-2xl space-y-6">
+            <form onSubmit={handleFinalSubmit} className="space-y-6 font-mono-tech">
               <div>
-                <span className="font-mono-tech text-xs text-[#F05A28] font-bold block mb-1">
-                  SPATIAL PARAMETERS
+                <span className="text-xs text-[#F05A28] font-bold block mb-1 uppercase">
+                  SPATIAL PARAMETERS & CAPACITY SPLIT
                 </span>
                 <h2 className="text-xl font-bold uppercase text-[#F4F4F5]">Facility Configuration</h2>
                 <p className="text-xs text-[#A1A1AA] mt-1">
-                  Configure venue model, sensor tiers, and ground staff credentials.
+                  Specify 2-wheeler & 4-wheeler capacity split, hourly pricing, and EV charging settings.
                 </p>
               </div>
 
@@ -351,7 +399,7 @@ export default function RegisterPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Input
                     label="Facility Name"
-                    placeholder="e.g. Phoenix Citadel - North Gate"
+                    placeholder="e.g. City Mall Parking"
                     value={form.parkingAreaName}
                     onChange={(e) => updateField('parkingAreaName', e.target.value)}
                     error={errors.parkingAreaName}
@@ -369,94 +417,205 @@ export default function RegisterPage() {
 
                 <Input
                   label="Full Facility Address"
-                  placeholder="e.g. 26/1 Dr Rajkumar Road, Phase 2, IT Corridor"
+                  placeholder="e.g. 26/1 Dr Rajkumar Road, Phase 2"
                   value={form.address}
                   onChange={(e) => updateField('address', e.target.value)}
                   error={errors.address}
                   required
                 />
 
-                {/* Venue Type */}
-                <div>
-                  <label className="text-xs font-mono-tech uppercase font-bold text-[#A1A1AA] tracking-wider block mb-2">
-                    Venue Operational Model
-                  </label>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    {[
-                      { id: 'TRANSIENT', title: 'TRANSIENT', desc: 'Mall, Airport, Hourly visitors' },
-                      { id: 'RECURRING', title: 'RECURRING', desc: 'Residential, Tech Park, Fixed bays' },
-                      { id: 'BOTH', title: 'HYBRID (BOTH)', desc: 'Mixed commercial + residential' },
-                    ].map((vt) => (
-                      <div
-                        key={vt.id}
-                        onClick={() => updateField('venueType', vt.id)}
-                        className={`p-3 border cursor-pointer font-mono-tech transition-all duration-150 ${
-                          form.venueType === vt.id
-                            ? 'bg-[#171D27] text-[#F4F4F5] border-[#F05A28]'
-                            : 'bg-[#0B0E13] text-[#A1A1AA] border-[#292E38] hover:border-[#3E4552]'
-                        }`}
-                      >
-                        <span className="font-bold text-xs block mb-1 text-[#F4F4F5]">{vt.title}</span>
-                        <span className="text-[10px] opacity-80 font-sans block">{vt.desc}</span>
-                      </div>
-                    ))}
+                {/* Operating Hours */}
+                <div className="grid grid-cols-2 gap-4 bg-[#171D27] p-4 border border-[#292E38]">
+                  <div>
+                    <label className="text-xs text-zinc-400 uppercase font-bold block mb-1">Opening Time</label>
+                    <input
+                      type="time"
+                      value={form.openingTime}
+                      onChange={(e) => updateField('openingTime', e.target.value)}
+                      className="w-full bg-[#121720] border border-[#292E38] text-white p-2.5 text-xs focus:outline-none focus:border-[#F05A28]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-zinc-400 uppercase font-bold block mb-1">Closing Time</label>
+                    <input
+                      type="time"
+                      value={form.closingTime}
+                      onChange={(e) => updateField('closingTime', e.target.value)}
+                      className="w-full bg-[#121720] border border-[#292E38] text-white p-2.5 text-xs focus:outline-none focus:border-[#F05A28]"
+                    />
                   </div>
                 </div>
 
-                {/* Site Tier */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-mono-tech uppercase font-bold text-[#A1A1AA] tracking-wider">
-                      Hardware Automation Tier (0 - 3)
+                {/* CAPACITY SPLIT SECTION */}
+                <div className="bg-[#171D27] p-4 border border-[#292E38] space-y-4">
+                  <div className="flex items-center justify-between border-b border-[#292E38] pb-2">
+                    <span className="text-xs font-bold text-white uppercase flex items-center gap-1.5">
+                      <Car className="w-4 h-4 text-[#F05A28]" /> Capacity Breakdown & Slot Generation
+                    </span>
+                    <span
+                      className={`text-xs font-bold px-2 py-0.5 border ${
+                        isCapacityMatching
+                          ? 'border-emerald-500/50 bg-emerald-950/30 text-emerald-300'
+                          : 'border-rose-500/50 bg-rose-950/30 text-rose-300'
+                      }`}
+                    >
+                      {isCapacityMatching
+                        ? `✓ ${sumCapacities} / ${form.totalSlots} BAYS MATCHED`
+                        : `⚠ SUM (${sumCapacities}) ≠ TOTAL (${form.totalSlots})`}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+                    <div>
+                      <label className="text-zinc-400 uppercase block mb-1">Total Capacity</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={10000}
+                        value={form.totalSlots}
+                        onChange={(e) => updateField('totalSlots', Math.max(1, parseInt(e.target.value) || 0))}
+                        className="w-full bg-[#121720] border border-[#292E38] text-white p-2.5 font-bold text-sm focus:outline-none focus:border-[#F05A28]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-zinc-400 uppercase block mb-1">2-Wheeler (B001..)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={form.totalSlots}
+                        value={form.twoWheelerCapacity}
+                        onChange={(e) => updateField('twoWheelerCapacity', Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-full bg-[#121720] border border-[#292E38] text-white p-2.5 font-bold text-sm focus:outline-none focus:border-[#F05A28]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-zinc-400 uppercase block mb-1">4-Wheeler (C001..)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={form.totalSlots}
+                        value={form.fourWheelerCapacity}
+                        onChange={(e) => updateField('fourWheelerCapacity', Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-full bg-[#121720] border border-[#292E38] text-white p-2.5 font-bold text-sm focus:outline-none focus:border-[#F05A28]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-zinc-400 uppercase block mb-1">Other (O001..)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={form.totalSlots}
+                        value={form.otherCapacity}
+                        onChange={(e) => updateField('otherCapacity', Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-full bg-[#121720] border border-[#292E38] text-white p-2.5 font-bold text-sm focus:outline-none focus:border-[#F05A28]"
+                      />
+                    </div>
+                  </div>
+
+                  {errors.totalSlots && (
+                    <div className="p-2.5 border border-rose-500/40 bg-rose-950/30 text-rose-300 text-xs">
+                      {errors.totalSlots}
+                    </div>
+                  )}
+                </div>
+
+                {/* HOURLY RATES SECTION */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs text-zinc-400 uppercase font-bold block mb-1">2-Wheeler Hourly Rate (₹/hr)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={form.hourlyRate2W}
+                      onChange={(e) => updateField('hourlyRate2W', Math.max(0, Number(e.target.value)))}
+                      className="w-full bg-[#171D27] border border-[#292E38] text-white p-2.5 text-xs font-bold focus:outline-none focus:border-[#F05A28]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-zinc-400 uppercase font-bold block mb-1">4-Wheeler Hourly Rate (₹/hr)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={form.hourlyRate4W}
+                      onChange={(e) => updateField('hourlyRate4W', Math.max(0, Number(e.target.value)))}
+                      className="w-full bg-[#171D27] border border-[#292E38] text-white p-2.5 text-xs font-bold focus:outline-none focus:border-[#F05A28]"
+                    />
+                  </div>
+                </div>
+
+                {/* EV CHARGING & CAR WASH CONFIG */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* EV Config */}
+                  <div className="bg-[#171D27] p-4 border border-[#292E38] space-y-3">
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <span className="text-xs font-bold text-amber-400 uppercase flex items-center gap-1.5">
+                        <Zap className="w-4 h-4" /> EV Charging Supported
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={form.evChargingAvailable}
+                        onChange={(e) => updateField('evChargingAvailable', e.target.checked)}
+                        className="accent-amber-400 w-4 h-4"
+                      />
                     </label>
-                    <span className="font-mono-tech text-[10px] text-[#F05A28] font-bold">FLEXIBLE HARDWARE</span>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {[
-                      { tier: 0, title: 'TIER 0: MANUAL', desc: 'Attendant tallies' },
-                      { tier: 1, title: 'TIER 1: GATES', desc: 'Loop barrier count' },
-                      { tier: 2, title: 'TIER 2: CCTV/ANPR', desc: 'Camera vision' },
-                      { tier: 3, title: 'TIER 3: IOT GRID', desc: 'Slot sensors' },
-                    ].map((st) => (
-                      <div
-                        key={st.tier}
-                        onClick={() => updateField('siteTier', st.tier)}
-                        className={`p-2.5 border cursor-pointer font-mono-tech transition-all duration-150 ${
-                          form.siteTier === st.tier
-                            ? 'bg-[#F05A28] text-white border-[#F05A28] font-bold shadow-sm'
-                            : 'bg-[#0B0E13] text-[#A1A1AA] border-[#292E38] hover:border-[#3E4552]'
-                        }`}
-                      >
-                        <span className="text-xs block">{st.title}</span>
-                        <span className="text-[9px] opacity-90 font-sans block">{st.desc}</span>
+
+                    {form.evChargingAvailable && (
+                      <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+                        <div>
+                          <label className="text-[10px] text-zinc-400 uppercase block mb-1">EV Points Count</label>
+                          <input
+                            type="number"
+                            min={1}
+                            value={form.evPointsCount}
+                            onChange={(e) => updateField('evPointsCount', Math.max(1, parseInt(e.target.value) || 0))}
+                            className="w-full bg-[#121720] border border-[#292E38] text-white p-2 text-xs font-bold"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-zinc-400 uppercase block mb-1">EV Rate (₹/hr)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={form.evHourlyRate}
+                            onChange={(e) => updateField('evHourlyRate', Math.max(0, Number(e.target.value)))}
+                            className="w-full bg-[#121720] border border-[#292E38] text-white p-2 text-xs font-bold text-amber-400"
+                          />
+                        </div>
                       </div>
-                    ))}
+                    )}
                   </div>
-                </div>
 
-                {/* Levels & Slots */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input
-                    label="Number of Levels / Decks"
-                    type="number"
-                    min={1}
-                    max={50}
-                    value={form.levels}
-                    onChange={(e) => updateField('levels', parseInt(e.target.value) || 1)}
-                    error={errors.levels}
-                    required
-                  />
+                  {/* Car Wash Config */}
+                  <div className="bg-[#171D27] p-4 border border-[#292E38] space-y-3">
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <span className="text-xs font-bold text-blue-400 uppercase flex items-center gap-1.5">
+                        <Sparkles className="w-4 h-4" /> Car Wash Service
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={form.carWashAvailable}
+                        onChange={(e) => updateField('carWashAvailable', e.target.checked)}
+                        className="accent-blue-400 w-4 h-4"
+                      />
+                    </label>
 
-                  <Input
-                    label="Total Parking Capacity (Bays)"
-                    type="number"
-                    min={1}
-                    max={10000}
-                    value={form.totalSlots}
-                    onChange={(e) => updateField('totalSlots', parseInt(e.target.value) || 1)}
-                    error={errors.totalSlots}
-                    required
-                  />
+                    {form.carWashAvailable && (
+                      <div className="text-xs pt-1">
+                        <label className="text-[10px] text-zinc-400 uppercase block mb-1">Car Wash Price (₹)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={form.carWashRate}
+                          onChange={(e) => updateField('carWashRate', Math.max(0, Number(e.target.value)))}
+                          className="w-full bg-[#121720] border border-[#292E38] text-white p-2 text-xs font-bold text-blue-400"
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Staff Shared Password */}
@@ -506,6 +665,7 @@ export default function RegisterPage() {
                   variant="primary"
                   size="lg"
                   isLoading={loading}
+                  disabled={!isCapacityMatching}
                 >
                   COMPLETE ONBOARDING <ArrowRight className="w-4 h-4 ml-1" />
                 </Button>
@@ -516,83 +676,48 @@ export default function RegisterPage() {
 
         {/* STEP 3: Success Screen */}
         {step === 3 && successData && (
-          <div className="border border-[#292E38] bg-[#121720] p-8 sm:p-12 text-center shadow-2xl">
-            
-            <div className="w-12 h-12 bg-[#68715B] text-white flex items-center justify-center mx-auto mb-4 font-mono-tech text-xl font-bold">
-              ✓
+          <div className="border border-[#292E38] bg-[#121720] p-8 sm:p-12 text-center shadow-2xl font-mono-tech space-y-6">
+            <div className="w-16 h-16 bg-[#9EB08C]/20 border border-[#9EB08C] text-[#9EB08C] flex items-center justify-center mx-auto rounded-full">
+              <Check className="w-8 h-8" />
             </div>
 
-            <Badge variant="olive" size="lg" className="mb-3">FACILITY ONBOARDED</Badge>
-            <h2 className="text-3xl sm:text-4xl font-extrabold uppercase tracking-tight text-[#F4F4F5]">
-              Facility Initialized
-            </h2>
-            <p className="text-sm text-[#A1A1AA] font-mono-tech max-w-md mx-auto mt-2">
-              Multi-tenant scope created in ParkSmart engine.
-            </p>
-
-            {/* Parking Area Code Card */}
-            <div className="mt-8 p-6 bg-[#171D27] text-[#F4F4F5] max-w-md mx-auto border border-[#F05A28]">
-              <span className="text-[10px] font-mono-tech text-[#A1A1AA] uppercase tracking-widest block mb-1">
-                UNIQUE PARKING FACILITY CODE
-              </span>
-              <div className="text-2xl md:text-3xl font-mono-tech font-extrabold text-[#F05A28] tracking-widest select-all my-2">
-                {successData.code}
-              </div>
-              <p className="text-[11px] font-mono-tech text-[#A1A1AA] mb-4">
-                Share this identifier with gate attendants for terminal sign-in.
+            <div>
+              <span className="text-xs text-[#9EB08C] font-bold block mb-1">ONBOARDING SUCCESSFUL</span>
+              <h1 className="text-3xl font-extrabold text-white uppercase">{successData.name}</h1>
+              <p className="text-xs text-zinc-400 mt-1">
+                Your parking facility has been registered and individual slot records (`B001..` & `C001..`) generated.
               </p>
-              <Button
-                variant={copied ? 'secondary' : 'primary'}
-                size="md"
-                onClick={copyCodeToClipboard}
-                className="w-full"
-              >
-                {copied ? '✓ COPIED TO CLIPBOARD' : 'COPY FACILITY CODE'}
-              </Button>
             </div>
 
-            {/* Details Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-lg mx-auto mt-6 text-left font-mono-tech text-xs">
-              <div className="bg-[#171D27] p-3 border border-[#292E38]">
-                <span className="text-[9px] text-[#A1A1AA] uppercase block">VENUE</span>
-                <span className="font-bold text-[#F4F4F5] truncate block">{successData.name}</span>
+            <div className="bg-[#171D27] p-4 border border-[#292E38] max-w-md mx-auto text-left text-xs space-y-2">
+              <div className="flex justify-between border-b border-[#292E38] pb-1.5">
+                <span className="text-zinc-400">FACILITY CODE:</span>
+                <span className="font-bold text-[#F05A28] text-sm">{successData.code}</span>
               </div>
-              <div className="bg-[#171D27] p-3 border border-[#292E38]">
-                <span className="text-[9px] text-[#A1A1AA] uppercase block">REGION</span>
-                <span className="font-bold text-[#F4F4F5] truncate block">{successData.city}</span>
+              <div className="flex justify-between border-b border-[#292E38] pb-1.5">
+                <span className="text-zinc-400">ADMIN EMAIL:</span>
+                <span className="font-bold text-white">{successData.adminEmail}</span>
               </div>
-              <div className="bg-[#171D27] p-3 border border-[#292E38]">
-                <span className="text-[9px] text-[#A1A1AA] uppercase block">SITE TIER</span>
-                <span className="font-bold text-[#F05A28] block">TIER {successData.tier}</span>
-              </div>
-              <div className="bg-[#171D27] p-3 border border-[#292E38]">
-                <span className="text-[9px] text-[#A1A1AA] uppercase block">CAPACITY</span>
-                <span className="font-bold text-[#9EB08C] block">{successData.slots} BAYS</span>
+              <div className="flex justify-between">
+                <span className="text-zinc-400">GENERATED BAYS:</span>
+                <span className="font-bold text-[#9EB08C]">{successData.slots} BAYS</span>
               </div>
             </div>
 
-            {/* Action CTAs */}
-            <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Link href="/login" className="w-full sm:w-auto">
-                <Button variant="primary" size="lg" className="w-full">
-                  PROCEED TO LOGIN <ArrowRight className="w-4 h-4 ml-1.5" />
-                </Button>
-              </Link>
-              <Link href="/" className="w-full sm:w-auto">
-                <Button variant="secondary" size="lg" className="w-full">
-                  RETURN TO HOME
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-4">
+              <Link href="/login">
+                <Button variant="primary" size="lg">
+                  LOGIN TO ADMIN COCKPIT &rarr;
                 </Button>
               </Link>
             </div>
-
           </div>
         )}
 
       </main>
 
-      {/* Footer */}
-      <footer className="text-center py-4 text-xs font-mono-tech text-[#71717A] border-t border-[#292E38]">
-        PARKSMART // URBAN MOBILITY SPEC &bull; 2026
+      <footer className="max-w-4xl w-full mx-auto text-center py-4 text-xs font-mono-tech text-[#71717A] border-t border-[#292E38]">
+        PARKSMART FACILITY ONBOARDING &bull; AUTOMATED B001 & C001 SLOT GENERATION
       </footer>
     </div>
   );

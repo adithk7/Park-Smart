@@ -33,6 +33,18 @@ export async function POST(req: NextRequest) {
       siteTier,
       levels,
       totalSlots,
+      twoWheelerCapacity,
+      fourWheelerCapacity,
+      otherCapacity,
+      hourlyRate2W,
+      hourlyRate4W,
+      evChargingAvailable,
+      evPointsCount,
+      evHourlyRate,
+      carWashAvailable,
+      carWashRate,
+      openingTime,
+      closingTime,
       staffPassword,
     } = parseResult.data;
 
@@ -66,7 +78,7 @@ export async function POST(req: NextRequest) {
       attempts++;
     }
 
-    // 5. Create ParkingArea and Admin User in ONE atomic transaction
+    // 5. Create ParkingArea, Admin User, Level, Zone, Slots, EV Points in ONE atomic transaction
     const result = await db.$transaction(async (tx) => {
       const parkingArea = await tx.parkingArea.create({
         data: {
@@ -78,10 +90,23 @@ export async function POST(req: NextRequest) {
           tier: siteTier,
           levels,
           totalCapacity: totalSlots,
-          occupiedCount: 0,
-          hourlyRate: 30.0,
+          twoWheelerCapacity,
+          fourWheelerCapacity,
+          otherCapacity,
+          hourlyRate2W,
+          hourlyRate4W,
+          hourlyRate: hourlyRate4W,
           currency: 'INR',
+          carWashAvailable,
+          carWashRate,
+          evChargingAvailable,
+          evHourlyRate,
+          evRatePerKw: evHourlyRate,
+          evPointsCount,
+          openingTime,
+          closingTime,
           staffPasswordHash,
+          isPublished: true, // Make published immediately upon creation
         },
       });
 
@@ -94,6 +119,80 @@ export async function POST(req: NextRequest) {
           role: 'ADMIN',
         },
       });
+
+      // Create Level 1 and Zone A for individual slot placement
+      const level = await tx.level.create({
+        data: {
+          parkingAreaId: parkingArea.id,
+          name: 'Level 1',
+          displayOrder: 1,
+        },
+      });
+
+      const zone = await tx.zone.create({
+        data: {
+          parkingAreaId: parkingArea.id,
+          levelId: level.id,
+          name: 'Zone A',
+          zoneType: 'VISITOR_POOL',
+        },
+      });
+
+      // Generate Two-Wheeler Slots: B001, B002... B060
+      const slotsToInsert = [];
+      for (let i = 1; i <= twoWheelerCapacity; i++) {
+        const slotNumber = `B${String(i).padStart(3, '0')}`;
+        slotsToInsert.push({
+          parkingAreaId: parkingArea.id,
+          zoneId: zone.id,
+          slotNumber,
+          vehicleType: '2W',
+          status: 'FREE',
+        });
+      }
+
+      // Generate Four-Wheeler Slots: C001, C002... C040
+      for (let i = 1; i <= fourWheelerCapacity; i++) {
+        const slotNumber = `C${String(i).padStart(3, '0')}`;
+        slotsToInsert.push({
+          parkingAreaId: parkingArea.id,
+          zoneId: zone.id,
+          slotNumber,
+          vehicleType: '4W',
+          status: 'FREE',
+        });
+      }
+
+      // Generate Other Slots: O001, O002...
+      for (let i = 1; i <= otherCapacity; i++) {
+        const slotNumber = `O${String(i).padStart(3, '0')}`;
+        slotsToInsert.push({
+          parkingAreaId: parkingArea.id,
+          zoneId: zone.id,
+          slotNumber,
+          vehicleType: 'OTHER',
+          status: 'FREE',
+        });
+      }
+
+      for (const slot of slotsToInsert) {
+        await tx.parkingSlot.create({ data: slot });
+      }
+
+      // Generate EV Charging Points: EV01, EV02...
+      if (evChargingAvailable && evPointsCount > 0) {
+        for (let i = 1; i <= evPointsCount; i++) {
+          const evCode = `EV${String(i).padStart(2, '0')}`;
+          await tx.evChargingPoint.create({
+            data: {
+              parkingAreaId: parkingArea.id,
+              code: evCode,
+              powerKw: 22.0,
+              status: 'AVAILABLE',
+            },
+          });
+        }
+      }
 
       // Initialize default entry & exit barrier gates
       await tx.barrierGate.createMany({
@@ -134,6 +233,8 @@ export async function POST(req: NextRequest) {
           tier: result.parkingArea.tier,
           venueType: result.parkingArea.venueType,
           totalCapacity: result.parkingArea.totalCapacity,
+          twoWheelerCapacity: result.parkingArea.twoWheelerCapacity,
+          fourWheelerCapacity: result.parkingArea.fourWheelerCapacity,
           levels: result.parkingArea.levels,
         },
       },

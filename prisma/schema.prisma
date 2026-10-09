@@ -21,12 +21,24 @@ model ParkingArea {
   tier              Int      @default(1) // Site tier 0-3 (0=No sensors, 1=Gates only, 2=CCTV/ANPR, 3=Slot sensors)
   levels            Int      @default(1)
   totalCapacity     Int      @default(100)
-  occupiedCount     Int      @default(0)
+  twoWheelerCapacity Int     @default(60)
+  fourWheelerCapacity Int    @default(40)
+  otherCapacity     Int      @default(0)
+  hourlyRate2W      Float    @default(15.0)
+  hourlyRate4W      Float    @default(30.0)
   hourlyRate        Float    @default(20.0)
   currency          String   @default("INR")
   staffPasswordHash String?  // Shared password hash for gate attendants / staff
   contactPhone      String?
-  isPublished       Boolean  @default(false) // Admin must explicitly publish to appear in public search
+  carWashAvailable  Boolean  @default(false)
+  carWashRate       Float    @default(150.0)
+  evChargingAvailable Boolean @default(false)
+  evHourlyRate      Float    @default(50.0)
+  evRatePerKw       Float    @default(50.0)
+  evPointsCount     Int      @default(0)
+  openingTime       String   @default("00:00")
+  closingTime       String   @default("23:59")
+  isPublished       Boolean  @default(true) // Admin must explicitly publish to appear in public search
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -43,6 +55,9 @@ model ParkingArea {
   barrierGates      BarrierGate[]
   paymentRecords    PaymentRecord[]
   tariffs           Tariff[]
+  bookings          Booking[]
+  chargingPoints    EvChargingPoint[]
+  evReservations    EvReservation[]
 }
 
 // System Users (ADMIN or STAFF scoped to a ParkingArea)
@@ -161,6 +176,7 @@ model ParkingSlot {
   zone          Zone         @relation(fields: [zoneId], references: [id], onDelete: Cascade)
   sessions      VisitSession[]
   recurringProfiles RecurringProfile[]
+  bookings      Booking[]
 
   @@unique([parkingAreaId, slotNumber])
   @@index([parkingAreaId])
@@ -376,3 +392,86 @@ model PaymentRecord {
   @@index([parkingAreaId])
   @@index([sessionId])
 }
+
+// ─────────────────────────────────────────────────────────────────
+// BOOKING & EV CHARGING MODELS
+// ─────────────────────────────────────────────────────────────────
+
+model Booking {
+  id                  String             @id @default(cuid())
+  bookingCode         String             @unique @default(cuid()) // e.g. "BK-89123"
+  parkingAreaId       String
+  slotId              String?
+  vehicleType         String             @default("4W") // "2W", "4W", "SUV", "EV"
+  vehiclePlate        String
+  estimatedArrival    DateTime
+  estimatedDuration   Int                @default(1) // duration in hours
+  checkInDeadline     DateTime           // estimatedArrival + 20 minutes grace period
+  carWashRequested    Boolean            @default(false)
+  carWashFee          Float              @default(0.0)
+  evChargingRequested Boolean            @default(false)
+  evChargingFee       Float              @default(0.0)
+  evChargingPointId   String?
+  evRatePerHour       Float              @default(50.0)
+  parkingRatePerHour  Float              @default(20.0)
+  parkingFee          Float              @default(0.0)
+  totalAmount         Float              @default(0.0)
+  paymentMethod       String             @default("PAY_AT_PARKING") // "PAY_AT_PARKING", "PREPAY_ONLINE"
+  paymentStatus       String             @default("PENDING") // "PENDING", "PAID", "REFUNDED"
+  // Statuses: PENDING, CONFIRMED, CHECKED_IN, COMPLETED, CANCELLED, EXPIRED
+  status              String             @default("PENDING")
+  driverPhone         String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  parkingArea         ParkingArea        @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+  slot                ParkingSlot?       @relation(fields: [slotId], references: [id], onDelete: SetNull)
+  evChargingPoint     EvChargingPoint?   @relation(fields: [evChargingPointId], references: [id], onDelete: SetNull)
+  evReservation       EvReservation?
+
+  @@index([parkingAreaId])
+  @@index([slotId])
+  @@index([status])
+  @@index([bookingCode])
+  @@index([estimatedArrival])
+}
+
+model EvChargingPoint {
+  id            String          @id @default(cuid())
+  parkingAreaId String
+  code          String          // e.g. "EV01", "EV02"
+  powerKw       Float           @default(22.0)
+  // Statuses: AVAILABLE, IN_USE, MAINTENANCE, DISABLED
+  status        String          @default("AVAILABLE")
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  parkingArea   ParkingArea     @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+  bookings      Booking[]
+  reservations  EvReservation[]
+
+  @@unique([parkingAreaId, code])
+  @@index([parkingAreaId])
+}
+
+model EvReservation {
+  id                String          @id @default(cuid())
+  parkingAreaId     String
+  evChargingPointId String
+  bookingId         String?         @unique
+  startTime         DateTime
+  endTime           DateTime
+  // Statuses: RESERVED, ACTIVE, COMPLETED, RELEASED, CANCELLED
+  status            String          @default("RESERVED")
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  parkingArea       ParkingArea     @relation(fields: [parkingAreaId], references: [id], onDelete: Cascade)
+  evChargingPoint   EvChargingPoint @relation(fields: [evChargingPointId], references: [id], onDelete: Cascade)
+  booking           Booking?        @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  @@index([parkingAreaId])
+  @@index([evChargingPointId])
+  @@index([startTime, endTime])
+}
+
